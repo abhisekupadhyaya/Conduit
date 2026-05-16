@@ -1179,7 +1179,7 @@ git commit -m "feat(service): public auth (authenticate/current/update_self)"
 - Create: `backend/conduit/public/schemas/auth.py`
 - Create: `backend/conduit/supervisor/schemas/accounts.py`
 
-- [ ] **Step 1: Implement public schemas**
+- [x] **Step 1: Implement public schemas**
 
 Create `conduit/public/schemas/auth.py`:
 
@@ -1210,7 +1210,7 @@ class SelfUpdateIn(BaseModel):
     new_password: str | None = None
 ```
 
-- [ ] **Step 2: Implement supervisor schemas**
+- [x] **Step 2: Implement supervisor schemas**
 
 Create `conduit/supervisor/schemas/accounts.py`:
 
@@ -1246,12 +1246,12 @@ class AccountOut(BaseModel):
     created_at: dt.datetime
 ```
 
-- [ ] **Step 3: Verify import**
+- [x] **Step 3: Verify import**
 
 Run: `.venv/bin/python -c "from conduit.public.schemas.auth import AuthUser; from conduit.supervisor.schemas.accounts import AccountOut; print('ok')"`
 Expected: `ok`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add conduit/public/schemas/auth.py conduit/supervisor/schemas/accounts.py
