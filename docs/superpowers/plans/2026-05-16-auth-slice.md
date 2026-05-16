@@ -2301,7 +2301,7 @@ git commit -m "feat(login): tight monochrome cookie-session login"
 **Files:**
 - Create: `src/shell/supervisor/hooks/use-accounts.ts`, `src/auth/use-update-self.ts`, `src/components/common/account-form-dialog.tsx`
 
-- [ ] **Step 1: `use-accounts.ts`**
+- [x] **Step 1: `use-accounts.ts`**
 
 ```ts
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
@@ -2343,7 +2343,7 @@ export function useUpdateAccount() {
 }
 ```
 
-- [ ] **Step 2: `use-update-self.ts`**
+- [x] **Step 2: `use-update-self.ts`**
 
 ```ts
 import { useMutation } from "@tanstack/react-query"
@@ -2360,7 +2360,7 @@ export function useUpdateSelf() {
 }
 ```
 
-- [ ] **Step 3: `account-form-dialog.tsx`** (shared create dialog)
+- [x] **Step 3: `account-form-dialog.tsx`** (shared create dialog)
 
 ```tsx
 import { useState } from "react"
@@ -2426,7 +2426,7 @@ export function AccountFormDialog({ role, label }: { role: string; label: string
 }
 ```
 
-- [ ] **Step 4: Typecheck + commit**
+- [x] **Step 4: Typecheck + commit**
 
 ```bash
 npm run build
