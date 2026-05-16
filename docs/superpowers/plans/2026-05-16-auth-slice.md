@@ -227,7 +227,7 @@ git commit -m "feat(config): cookie + seed + test-db settings"
 - Modify: `backend/conduit/core/exceptions.py`
 - Test: `backend/tests/api/test_exceptions.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/api/test_exceptions.py`:
 
@@ -240,12 +240,12 @@ def test_conflict_error_is_409():
     assert e.message == "dupe"
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/api/test_exceptions.py -q`
 Expected: FAIL — `ImportError: cannot import name 'ConflictError'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `conduit/core/exceptions.py`, after `class ForbiddenError`:
 
@@ -254,12 +254,12 @@ class ConflictError(ConduitError):
     status_code = 409
 ```
 
-- [ ] **Step 4: Run it, expect pass**
+- [x] **Step 4: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/api/test_exceptions.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/core/exceptions.py tests/api/test_exceptions.py
