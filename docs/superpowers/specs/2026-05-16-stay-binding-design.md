@@ -82,11 +82,12 @@ it.
 | Active stay | **Invariant: at most one `active` stay per guest.** Enforced by a Postgres **partial unique index** `(guest_account_id) WHERE status='active'` (race-proof, bad state physically impossible) **plus** a service guard for a clean domain `409` message. Room double-booking is *not* guarded (trust posture, D31/D27) |
 | Property FKs | **Single-root: `property_id` on `Section` only.** Room→Section→Property, Stay→Room→Section→Property transitively. No single-value columns scattered; multi-property denormalizes deliberately later (additive migration, not a rewrite — satisfies AD9) |
 | Dates | `check_in` / `check_out` = **`timestamptz`** (flow 04 is time-of-day-sensitive — late checkout till 2pm), even though unread this slice; avoids a later type migration |
-| Ambient seam | `/auth/me` is **extended**, not a new route — guest role resolves the active stay → `{stay_id, room_id, room_label, section_id, section_label}`; `null` for non-guest / no active stay. Re-resolved **every request** (consistent with auth's status re-check) — this is *why* relocation needs no re-login |
+| Ambient seam | `/auth/me` is **extended**, not a new route. The response model is `AuthUser` in `conduit/public/schemas/auth.py` (`ConfigDict(from_attributes=True)`, no `extra=forbid`) — add **five optional** ambient fields defaulting `None`. The `/me` handler builds `AuthUser` from the account **plus** `resolve_ambient`. `resolve_ambient(s, actor)` takes the `Actor` (frozen `Actor(id:str, role:str)` from `current_actor`), guest-only, else `None`. `login` also returns `AuthUser`; it simply carries `None` ambient (the SPA bootstraps via `/me`, which is polled) — acceptable, no login change. Re-resolved **every request** — *why* relocation needs no re-login |
 | Transitions | Relocate and checkout are **dedicated action endpoints**, not generic PATCH — guarded state transitions that emit events (D20); benign field edits (`check_in/out`) use PATCH |
 | Relocation trigger | **Supervisor action only.** The internal `relocate_stay` service is the exact seam the future glitch spine re-enters — kept clean, but no spine seam over-built now |
 | Event seam | Generic append-only `event` base preserves entities.md's universal-log evolution seam (new type = new detail table + extended CHECK — additive, never migrates existing rows). Append-only enforced by no-app-write-path + asserted invariant (no DB trigger — ceremony at this volume) |
-| Layering | `api → services → dal → models`; services raise domain errors (404/409/422), never `HTTPException`; services `flush`, commit at the request edge; ORM up, schema mapping at the API layer only |
+| Layering | `api → services → dal → shared/models`; **fully async** (`AsyncSession`, `await s.execute/get`, `async def` all the way down — matches the merged auth code). Services raise domain errors, never `HTTPException`; **DAL adds, does not flush** (auth precedent: `insert_account` is add-only); **services `await s.flush()`** when an id is needed; **the API handler `await s.commit()`s** after a mutating service call (read endpoints never commit) — exactly the merged `create_account` handler pattern. ORM up, schema mapping at the API layer only |
+| Errors / 422 | Domain errors map via `core/exceptions.py` (`ConduitError`=400 base, `NotFoundError`=404, `AuthError`=401, `ForbiddenError`=403, `ConflictError`=409). There is **no 422 class in the merged code** — this slice **adds `ValidationError(ConduitError); status_code=422`** (additive, exactly how auth added `ConflictError`). Invalid-guest / unknown-room → `ValidationError` (422); a raw `ValueError` would 500 (handler only catches `ConduitError`) |
 | Portal ownership | Three **self-contained portals** (`guest`/`servicer`/`supervisor`), each with its own `dal`/`services`/`api`; **no cross-import among the three**. `public/` (auth, health) is the pre-portal front door, not a portal. A portal reaches the DB *only* through `shared/models` via its **own** DAL — the shared contract is the **model, not the DAL** |
 | Binding read duplication | Supervisor owns binding CRUD + event writes (`supervisor/dal/`); the ambient resolver in `public/` has its **own** read (`public/dal/bindings.py`) over the *same shared models*. The ~one-function `Stay` read overlap is **intentional and cheap** — the price of portal self-containment; consistency is guaranteed by the shared model, not a shared DAL |
 | Event scope | Events emitted on the **three stay transitions only** (`stay_created`/`stay_ended`/`guest_relocated`); benign date edits and section/room config changes emit **nothing** (not journey-meaningful transitions) |
@@ -95,13 +96,30 @@ it.
 ### Module ownership & layout
 
 ```
-shared/models/        Property, Section, Room, Stay, Event(+3 detail)   ← DB contract
-supervisor/dal/       sections.py rooms.py stays.py events.py           ← CRUD + event writes
-supervisor/services/  sections.py rooms.py stays.py                     ← business logic, domain errors
-supervisor/api/       setup.py (sections/rooms) + stays.py              ← thin: gate + map + 1 service call
-public/dal/           bindings.py: get_active_binding_for_guest()       ← the one ambient read
-public/services/auth.py  resolve_ambient()  (EXTEND — §6 seam)          ← auth-owned coordination point
+shared/models/        property.py section.py room.py stay.py event.py   ← DB contract (1 model/file, registered in __init__.py + __all__)
+core/exceptions.py    (modify) add ValidationError(422)
+supervisor/dal/       sections.py rooms.py stays.py events.py           ← CRUD + event writes (add-only; no flush)
+supervisor/services/  sections.py rooms.py stays.py                     ← business logic, domain errors, await s.flush()
+supervisor/api/binding.py                                               ← sections+rooms+stays routes; registered in supervisor/api/__init__.py
+public/dal/bindings.py   get_active_binding_for_guest()                 ← the one ambient read
+public/services/auth.py  (modify) resolve_ambient()                     ← the §6 seam (now on main)
+public/schemas/auth.py   (modify) AuthUser += 5 optional ambient fields
+public/api/auth.py       (modify) /me builds AuthUser + ambient
 ```
+
+**API routing matches the merged structure exactly:** sub-routers carry a
+short prefix and are composed by `conduit/supervisor/api/__init__.py`
+(`router = APIRouter(prefix="/supervisor"); router.include_router(...)`);
+`main.py` adds `s.api_prefix` (`/api`). So a new
+`conduit/supervisor/api/binding.py` exposes
+`router = APIRouter(tags=["supervisor-binding"])` with paths `/sections`,
+`/sections/{id}`, `/rooms`, `/rooms/{id}`, `/stays`, `/stays/{id}`,
+`/stays/{id}/relocate`, `/stays/{id}/checkout` → resolving to the spec §8
+paths `/api/supervisor/...`. **Not** the existing `setup.py` (its router has
+a `/setup` prefix and would mis-path everything). Gating is **per-handler**
+`actor: Actor = Depends(_sup)` where `_sup = require_roles("supervisor",
+"duty_manager")` (mirrors `supervisor/api/accounts.py`), not router-level
+`dependencies=`.
 
 - **`supervisor/dal/`** (imports `shared/models` only) — `sections.py`
   (`get` · `get_by_label` · `list_with_room_counts` · `insert` · `update`);
@@ -238,13 +256,16 @@ mechanism that makes relocation take effect with **no re-login, no re-setup**
 (D20) — for free, by construction. It is also why a room→section re-cut moves
 a sitting guest's ambient section with no `Stay` write.
 
-⚠️ **Cross-worktree coordination point.** This is the *only* place this slice
-reaches into auth-owned code (`public/services/auth.py` and the `AuthUser` /
-`/auth/me` response schema). The auth slice's **contract-snapshot guard** will
-flag the drift — that is correct and intended; it is resolved deliberately at
-auth-merge time, not raced. The plan must sequence this change onto auth's
-merged `/auth/me` and update the committed contract snapshot in the same
-change.
+⚠️ **The one cross-slice touch point (auth is now merged to `main`).** This is
+the only place this slice modifies auth-owned code: `public/services/auth.py`
+(append `resolve_ambient`), `public/schemas/auth.py` (5 optional fields on
+`AuthUser`), `public/api/auth.py` (the `/me` handler builds `AuthUser` +
+ambient). The inherited contract-snapshot guard
+(`tests/api/test_security_guards.py` + `tests/api/contract_snapshot.json`)
+**will go red** on the new routes + changed surface — that is the guard
+working. It is regenerated **within this slice** by deleting
+`tests/api/contract_snapshot.json` and re-running (the guard recreates then
+enforces). No merge gating remains — this lands directly against `main`.
 
 ## 7. Relocation mechanism
 
@@ -385,16 +406,25 @@ hand-authored** (consistency with the registry baseline). Each install gets
 the same edit pass: kill default radii/shadows, neutralize focus rings to
 `ring`, strip chromatic states (monochrome; `destructive` stays).
 
-- **Reuse — already in `components/ui/` (13):** button, input, label,
-  field, separator, avatar, dropdown-menu (the `⋯` row menu — same pattern
-  auth uses for accounts), sidebar, sheet, skeleton, tooltip, breadcrumb,
-  collapsible.
-- **Provided by the auth slice — consume, do NOT re-add** (re-adding
-  clobbers the auth agent's edits — a hard coordination rule): card, form,
-  table, dialog, alert-dialog, sonner, badge, select, alert, tabs + the
-  shared primitives `page-header`, `empty-state`, `error-state`,
-  `status-badge`, `role-badge`, `confirm`, `data-table-shell`.
-- **This slice installs (net-new, nothing else needs them):**
+- **Already in `components/ui/` on `main` — reuse, do NOT re-add** (re-running
+  `shadcn add` overwrites the project's edited copy): alert, alert-dialog,
+  avatar, badge, breadcrumb, button, card, collapsible, dialog,
+  dropdown-menu, field, input, label, select, separator, sheet, sidebar,
+  skeleton, sonner, table, tabs, tooltip.
+- **Shared primitives already present — reuse with their real APIs:**
+  `@/components/layout/page-header` (`PageHeader{title, description?,
+  actions?}` — note `actions`, **not** `action`), `@/components/common/`:
+  `empty-state` (`EmptyState{title, hint?, action?}` — **not**
+  `description`), `error-state` (`ErrorState{title?, onRetry?}`),
+  `data-table-shell` (`DataTableShell{state:"loading"|"error"|"empty"|
+  "ready", toolbar?, table, cards, onRetry?, emptyTitle, emptyHint?}` — the
+  caller computes `state` and passes a `<Table>` for `table` and a node list
+  for `cards`, exactly as `manage-accounts.tsx` does), `confirm`
+  (`<Confirm open onOpenChange title description? confirmLabel? onConfirm>`
+  — a **controlled component**, not an imperative `await confirm()`),
+  `status-badge`, `role-badge`. The API client is `@/lib/api-client` →
+  `api.get/post/patch/del` (note `del`, not `delete`).
+- **This slice installs (verified absent on `main`):**
   `popover`, `calendar`, `command`, `accordion`.
 - **Composed patterns** (registry has no component — built once in
   `components/common/`, edited tight, reused by both dialogs):
@@ -424,7 +454,9 @@ the same edit pass: kill default radii/shadows, neutralize focus rings to
     [room combobox]`, live-previews the resulting section, and carries the
     honest §6 line in-UI ("re-binds immediately; the guest sees it on next
     refresh — no re-login"). **Await + toast**, not optimistic.
-  - **Check out** → the auth `confirm` (AlertDialog) primitive.
+  - **Check out** → the `<Confirm>` controlled component (state-driven
+    `open`/`onConfirm`), exactly the `manage-accounts.tsx` disable pattern —
+    **not** an imperative `await confirm(...)`.
   - **Check in guest** `Dialog` — single-column, `max-w` capped: guest
     `combobox-field` (filtered to no-active-stay), room `combobox-field`,
     `date-range-field`; auth's async/skeleton bar.
@@ -434,15 +466,14 @@ the same edit pass: kill default radii/shadows, neutralize focus rings to
   **Guest Provisioning** (existing nav entry, `/supervisor/provisioning`)
   → the Check-in page. Routes wired in `App.tsx` + `supervisorNav`.
 
-### Design system & tightness — coordinate at the auth merge (NOT now)
+### Design system & tightness — separate follow-up (NOT this slice)
 
-The shell/primitive uniformity-and-tightness pass is **auth-slice-owned and
-in-flight** (its scope includes retrofitting the placeholder shells onto
-the primitives and the monochrome token cleanup incl. the stray dark
-`--sidebar-primary` indigo at `index.css:112`). Two agents tightening the
-same global tokens in parallel produces a merge mess and an incoherent
-product. So this slice **does not edit `index.css`/primitives**; it records
-the target so it is applied **once, coordinated, when auth's layer merges**:
+Auth is merged; the uniformity primitives exist on `main`. This slice
+**consumes them as-is and does not retune global tokens** (`index.css`) —
+that is a deliberate scope boundary, not a merge gate. A global
+tightness pass touches every existing auth page and is its own focused
+change; bundling it here would be scope creep and would make this slice's
+diff unreviewable. Recorded as a follow-up:
 
 - **Aesthetic:** an operations console (Linear / Vercel-dashboard /
   flight-ops) — calm, dense, precise. Color = meaning only (`destructive`;
@@ -452,10 +483,9 @@ the target so it is applied **once, coordinated, when auth's layer merges**:
   borders; compact controls (`h-9`); denser table rhythm.
 - **Hierarchy by weight, not size**; status by weight + a quiet dot, never
   loud pills.
-- **Action:** owner of the merge applies these to the shared tokens once;
-  this slice's pages are built to *look right under that target* and
-  verified at the merge seam (pairs with the §6 / contract-snapshot
-  coordination — same checkpoint).
+- **Action:** a separate follow-up PR retunes the shared tokens once,
+  re-verifying all existing pages. This slice's pages are built to look
+  right under both the current and the target tokens.
 
 ## 10. Test bench
 
@@ -467,11 +497,30 @@ branch). The guarantee holds for every documented behaviour **and** these
 guarded classes; it is **not** a guarantee against a requirement never
 specified. Stated plainly so the comfort is real, not false.
 
-Extends the auth slice's harness (throwaway `conduit_test` DB built via
-`alembic upgrade head` — now including the second migration — leak sentinel,
-the structural guards, coverage gate). Precondition data built through the
-**real services** (`create_account` from auth, then `create_stay`), never raw
-inserts.
+Extends the **real merged harness** (`tests/conftest.py` on `main`): a
+session-scoped throwaway `conduit_test` DB built by `alembic command.upgrade
+head` (so it includes the 2nd migration automatically); function-scoped async
+fixtures `db` (an `AsyncSession`), `client` (`httpx.AsyncClient` +
+`ASGITransport`, `db_session` dependency-overridden onto `db`, cookie jar
+persists), `make_account(role, username, password="pw-123456", …)` (real
+`supervisor.services.accounts.create_account`, commits), `login(username,
+password)` (POSTs `/api/auth/login` on `client`). **There is no
+`supervisor_client` fixture** — an authed supervisor chain is
+`await make_account("supervisor","sup","pw-123456"); await
+login("sup","pw-123456")` then use `client`. All tests are `async def`
+(`asyncio_mode=auto`). Precondition data via real services, never raw inserts.
+
+**Teardown reality + this slice's required extension.** The merged `db`
+fixture's `finally` deletes **only `Account`**. This slice's tables FK to
+`account`/`room`/`section`, so an `Account`-only delete FK-fails once stays
+exist. This slice **adds `tests/binding/conftest.py`** with an autouse
+fixture that deletes the binding tables in **reverse-FK order**
+(`event_*`→`event`→`stay`→`room`→`section`; `Property` left as the seeded
+singleton) — its `finally` runs *before* the `db` finalizer (pytest LIFO),
+so the inherited `Account` delete then succeeds. Plus a `seeded_property`
+fixture and a leak sentinel asserting binding tables at baseline between
+tests. Tests are written **mechanism-agnostic** (no dependence on
+delete-vs-rollback).
 
 **Layered (each layer catches what the one above can't):**
 - **Migration** — 2nd migration `down_revision` = auth's; `upgrade`→
@@ -489,29 +538,43 @@ inserts.
   cookie-auth chains: every endpoint's happy path **and every error
   status**.
 
-**Structural guards (inherited from auth, extended here — the regression
-net):**
-1. **Contract snapshot** — committed `{path,methods,auth,status}` from the
-   live OpenAPI schema; *any* drift fails until the snapshot is
-   **intentionally** updated. **Owns asserting the extended `/auth/me`
-   ambient shape** — if the auth merge ever drops/renames an ambient field,
-   *this* slice's suite goes red at the seam (the deliberate §6
-   coordination artifact).
-2. **Response-schema parsing** — every response parsed into an
-   `extra="forbid"` model → catches leaked *and* dropped fields on
-   `SectionOut`/`RoomOut`/`StayOut` and the `/auth/me` ambient fields.
-3. **Parametric role × endpoint matrix** — authz expectations *generated*
-   over all `/supervisor/*` routes × all roles; a new route is
-   **auto-covered** (guest/servicer→403, no-cookie→401,
-   supervisor/duty_manager→allowed). An unguarded endpoint cannot ship.
-4. **Auth-coverage meta-test** — every route not in the public allowlist
-   returns 401 without a cookie.
-5. **Coverage gate** — `--cov fail-under`, **branch coverage, scoped to the
-   binding modules**: 100% on `dal`+`services`, high on `api`. An untested
-   branch fails the suite.
-6. **Leak sentinel** — between modules assert binding tables at seeded
-   baseline (`Property=1`, sections/rooms/stays/events=0). A missed
-   teardown fails **loudly**, never silently passes.
+**Structural guards — what `main` actually has (in
+`tests/api/test_security_guards.py`) + what this slice adds:**
+
+*Inherited, auto-covering the new routes (no new code needed):*
+1. **Auth-coverage meta-test** — iterates every non-`{param}` `/api` route
+   not in `PUBLIC={/api/health,/api/auth/login}` and asserts 401/403 without
+   a cookie. The new `/api/supervisor/sections|rooms|stays` are
+   **automatically** swept in — an unguarded route fails it.
+2. **Contract snapshot** — `tests/api/contract_snapshot.json` is the sorted
+   `[method, path]` list; `test_contract_snapshot_matches` fails on *any*
+   route-surface drift. Regenerated **intentionally within this slice** by
+   deleting the JSON and re-running (the test recreates then enforces). NB:
+   the snapshot tracks **routes, not response shapes** — it catches the new
+   routes, *not* `/auth/me` field changes.
+3. **`secret_hash` never serialized** + **JWT tamper/alg-none rejected** —
+   already exercise `/auth/me` and `/supervisor/*`; new responses pass
+   through the secret-hash substring guard for free.
+
+*Added by this slice (the real codebase has no response-schema or
+role×matrix guard — so this slice supplies the equivalent assurance
+explicitly):*
+4. **Response-shape assertions** — `SectionOut`/`RoomOut`/`StayOut` are
+   pydantic `extra="forbid"`; tests parse every response back through them
+   (leaked/dropped field ⇒ red). The **`/auth/me` ambient contract** is
+   asserted explicitly by the named invariants (#1/#4) and the e2e
+   sentinel — *not* by the route snapshot.
+5. **Role × endpoint** — each new route tested for guest/servicer→403,
+   no-cookie→401, supervisor/duty_manager→allowed (the per-handler `_sup`
+   gate), since no generated matrix exists to inherit.
+6. **Coverage gate (real)** — the merged `pyproject.toml` enforces
+   `--cov-fail-under=90` (line) over `conduit.public`/`conduit.supervisor`/
+   `conduit.core`/`conduit.shared.models`; this slice's modules fall in
+   that scope automatically. **No branch/100 claim** — the gate is the
+   existing global 90% line gate; do not silently change it (it would move
+   the bar for all merged auth code too).
+7. **Leak sentinel** — between tests assert binding tables at baseline
+   (`section/room/stay/event = 0`). A missed teardown fails **loudly**.
 
 **End-to-end journey sentinel (the test you actually trust):** one scripted
 test that *is* this slice's journey — seed supervisor → create section+room
@@ -522,18 +585,15 @@ section follows (**no `Stay` write**) → checkout → `/auth/me` ambient
 `null` → re-check-in allowed. Breaks loudly if any pipeline stage
 regresses.
 
-**Isolation / zero-residue (no residue even on failure).** Tests are
-written **mechanism-agnostic** — a test must never depend on the isolation
-strategy. The harness's isolation lives in the auth-owned `conftest.py`
-(in-flight); the **target recorded here is transactional savepoint-rollback**
-(`join_transaction_mode="create_savepoint"`, the `AsyncClient` sharing the
-bound connection, rollback in the fixture finalizer — true rollback even on
-a hard crash, faster, no FK-ordered delete to maintain). It is applied
-**once, coordinated, at the auth merge** (same checkpoint as §6 / contract
-snapshot) — not bolted on in parallel (two isolation strategies in one
-conftest ⇒ flakiness). Until then auth's model-delete-in-`finally` + leak
-sentinel already delivers zero-residue-on-failure; this slice's tests pass
-under either.
+**Isolation / zero-residue.** The merged harness uses model-delete in the
+`db` fixture's `finally` (runs on pass/fail/exception). This slice's
+`tests/binding/conftest.py` extends that with the FK-ordered binding delete
+described above, so zero-residue-on-failure holds for the new tables too.
+Transactional savepoint-rollback (faster, ordering-free) is noted as an
+**optional separate harness follow-up** against `main` — *not* part of this
+slice, and not required since the delete teardown already guarantees no
+residue. Tests stay mechanism-agnostic so that follow-up needs no change
+here.
 
 **Named invariants (one test each):**
 1. Ambient follows a relocation **atomically** — `relocate` then
@@ -551,9 +611,11 @@ under either.
 7. `DELETE` on every new route → `405`.
 8. Section is derived: reassigning a room's `section_id` changes the ambient
    `section_*` for a guest currently in that room, **with no `Stay` write**.
-9. Contract snapshot updated to include the extended `/auth/me` and all new
-   routes (the guard is green *because* the snapshot was intentionally
-   updated, not bypassed).
+9. Contract snapshot regenerated (deleted + recreated) to include the new
+   `/api/supervisor/sections|rooms|stays*` routes — green *because*
+   intentionally regenerated, not bypassed. (`/auth/me` is not a new route;
+   its ambient contract is covered by #1/#4 + the e2e sentinel, since the
+   snapshot tracks routes, not response shapes.)
 
 **CI:** Postgres required; red suite (incl. coverage gate) blocks merge.
 
@@ -592,11 +654,10 @@ green.
 - **`staff_profile` / roster / skills / availability** — the routing slice,
   the immediate next segment after this one.
 - **Global design-system tightness** (radius ≈ 0.4rem, density, accent
-  policy) — captured in §9; applied once, coordinated, at the auth-layer
-  merge (same checkpoint as the §6 / contract-snapshot seam). Deliberately
-  *not* edited by this slice to avoid parallel token-fighting with the
-  in-flight auth uniformity layer.
-- **Test-isolation upgrade to savepoint-rollback** — target recorded in
-  §10; applied once to the auth-owned `conftest.py` at the auth merge.
-  Tests here are mechanism-agnostic so the decision needs no change to this
-  slice. Same merge checkpoint as the design-system + §6 seams.
+  policy) — a **separate follow-up PR against `main`** (auth is merged; not
+  a merge gate). Out of this slice to keep its diff reviewable; its pages
+  are built to look right under both current and target tokens (§9).
+- **Test-isolation upgrade to savepoint-rollback** — optional separate
+  harness follow-up against `main` (§10). Not required (delete teardown
+  already gives zero-residue); tests are mechanism-agnostic so it needs no
+  change here.
