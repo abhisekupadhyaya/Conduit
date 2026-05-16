@@ -2,6 +2,8 @@ import pytest
 from sqlalchemy import inspect
 from conduit.shared.models import SLAPreset, EscalationLadder
 from conduit.shared.models import WorkOrder, Timer, Escalation
+from conduit.shared.models import (Recommendation, RecReassign, RecRelocate,
+    RecExtendSla, RecApprove, RecDeny, RecBroadcast)
 
 
 def test_sla_preset_columns():
@@ -36,3 +38,13 @@ def test_escalation_columns():
     assert cols == {"id", "child_id", "trigger", "state", "cycle_count",
                     "raised_by_account_id", "resolved_by_account_id",
                     "created_at", "resolved_at"}
+
+
+def test_recommendation_family():
+    base = {c.name for c in inspect(Recommendation).columns}
+    assert base == {"escalation_id","action","rationale_text","created_at"}
+    assert {c.name for c in inspect(RecReassign).columns} == {"recommendation_escalation_id","target_account_id"}
+    assert {c.name for c in inspect(RecRelocate).columns} == {"recommendation_escalation_id","target_room_id"}
+    assert {c.name for c in inspect(RecExtendSla).columns} == {"recommendation_escalation_id","extend_seconds"}
+    for m in (RecApprove, RecDeny, RecBroadcast):
+        assert {c.name for c in inspect(m).columns} == {"recommendation_escalation_id"}

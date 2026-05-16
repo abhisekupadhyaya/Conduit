@@ -54,6 +54,15 @@ from conduit.shared.models.escalation_ladder import EscalationLadder
 from conduit.shared.models.work_order import WorkOrder
 from conduit.shared.models.timer import Timer
 from conduit.shared.models.escalation import Escalation
+from conduit.shared.models.recommendation import (
+    Recommendation,
+    RecReassign,
+    RecRelocate,
+    RecExtendSla,
+    RecApprove,
+    RecDeny,
+    RecBroadcast,
+)
 
 __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "IssueCode", "KBEntry", "Request", "ChildSubRequest",
@@ -68,4 +77,6 @@ __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "EventPresenceChanged",
            "StaffProfile", "StaffSkill", "Roster", "RosterAssignment",
            "SLAPreset", "EscalationLadder",
-           "WorkOrder", "Timer", "Escalation"]
+           "WorkOrder", "Timer", "Escalation",
+           "Recommendation", "RecReassign", "RecRelocate", "RecExtendSla",
+           "RecApprove", "RecDeny", "RecBroadcast"]
