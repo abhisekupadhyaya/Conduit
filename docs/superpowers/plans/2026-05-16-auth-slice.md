@@ -2068,7 +2068,7 @@ git commit -m "feat(ui): shared primitives (header/empty/error/badges/confirm/ta
 - Create: `src/components/app-boot-splash.tsx`
 - Modify: `src/main.tsx`
 
-- [ ] **Step 1: Extend the auth contract**
+- [x] **Step 1: Extend the auth contract**
 
 In `src/auth/use-auth.ts`, change `AuthState` to add `loading` and
 `refreshUser`, and drop `email` from `User` (use `username`):
@@ -2086,7 +2086,7 @@ export type AuthState = {
 }
 ```
 
-- [ ] **Step 2: Centralized 401 in api-client**
+- [x] **Step 2: Centralized 401 in api-client**
 
 In `src/lib/api-client.ts`, add an unauthorized hook and fire it on 401:
 
@@ -2104,7 +2104,7 @@ In `request`, immediately after `if (!res.ok)` and before throwing:
   }
 ```
 
-- [ ] **Step 3: Real AuthProvider**
+- [x] **Step 3: Real AuthProvider**
 
 Replace `src/auth/auth-provider.tsx`:
 
@@ -2152,7 +2152,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 }
 ```
 
-- [ ] **Step 4: Boot splash gating**
+- [x] **Step 4: Boot splash gating**
 
 Create `src/components/app-boot-splash.tsx`:
 
@@ -2177,7 +2177,7 @@ In `src/main.tsx`, wrap the router subtree: place `<AppBootSplash>` inside
 `<AuthProvider>` and around `<App/>` (so the splash shows while `/auth/me`
 resolves, before any route renders).
 
-- [ ] **Step 5: Typecheck + commit**
+- [x] **Step 5: Typecheck + commit**
 
 ```bash
 npm run build

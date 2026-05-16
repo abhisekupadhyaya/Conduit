@@ -42,7 +42,7 @@ export function NavUser() {
   const { user, logout } = useAuth()
 
   const name = user?.name ?? "User"
-  const email = user?.email ?? ""
+  const username = user?.username ?? ""
 
   return (
     <SidebarMenu>
@@ -60,7 +60,7 @@ export function NavUser() {
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{name}</span>
-                <span className="truncate text-xs">{email}</span>
+                <span className="truncate text-xs">{username}</span>
               </div>
               <ChevronsUpDownIcon className="ml-auto size-4" />
             </SidebarMenuButton>
@@ -80,7 +80,7 @@ export function NavUser() {
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{name}</span>
-                  <span className="truncate text-xs">{email}</span>
+                  <span className="truncate text-xs">{username}</span>
                 </div>
               </div>
             </DropdownMenuLabel>

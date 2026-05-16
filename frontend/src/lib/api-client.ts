@@ -3,6 +3,9 @@
 // backend must allow CORS — a conscious divergence from archi AD6.
 const BASE = import.meta.env.VITE_API_BASE ?? "http://localhost:8000/api"
 
+let onUnauthorized: (() => void) | null = null
+export function setOnUnauthorized(fn: () => void) { onUnauthorized = fn }
+
 export class ApiError extends Error {
   status: number
   constructor(status: number, message: string) {
@@ -18,7 +21,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
     ...init,
   })
-  if (!res.ok) throw new ApiError(res.status, await res.text())
+  if (!res.ok) {
+    if (res.status === 401 && onUnauthorized) onUnauthorized()
+    throw new ApiError(res.status, await res.text())
+  }
   return (res.status === 204 ? undefined : await res.json()) as T
 }
 
