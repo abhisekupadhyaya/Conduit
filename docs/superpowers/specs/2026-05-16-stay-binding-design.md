@@ -377,16 +377,85 @@ no mutation hand-rolls it:
   desktop-first, `data-table-shell` reflows to cards `< md`, ~180ms skeleton
   delay, skeleton on first load only + keep-previous-data on filter change).
 
-- **Sections page** — `PageHeader` + `data-table-shell`: section label ·
-  room count · `⋯` (Rename). "Add section" `Dialog`. Rooms managed inline
-  here (create / reassign room → section), same primitives — no separate
-  Rooms page in v1.
-- **Provisioning / Check-in page** — stays `data-table-shell`: guest ·
-  room · section · dates · status `Badge` · `⋯` (**Move guest** → relocate
-  confirm `Dialog` with room picker; **Check out** → `confirm`). "Check in
-  guest" `Dialog` (guest picker filtered to guests with no active stay, room
-  picker, dates).
-- New routes wired in `App.tsx` + `supervisorNav`.
+### Component plan (shadcn-add-then-edit, always)
+
+**Principle:** every shadcn component is installed via
+`npx shadcn@latest add <c>` then edited for monochrome/tightness — **never
+hand-authored** (consistency with the registry baseline). Each install gets
+the same edit pass: kill default radii/shadows, neutralize focus rings to
+`ring`, strip chromatic states (monochrome; `destructive` stays).
+
+- **Reuse — already in `components/ui/` (13):** button, input, label,
+  field, separator, avatar, dropdown-menu (the `⋯` row menu — same pattern
+  auth uses for accounts), sidebar, sheet, skeleton, tooltip, breadcrumb,
+  collapsible.
+- **Provided by the auth slice — consume, do NOT re-add** (re-adding
+  clobbers the auth agent's edits — a hard coordination rule): card, form,
+  table, dialog, alert-dialog, sonner, badge, select, alert, tabs + the
+  shared primitives `page-header`, `empty-state`, `error-state`,
+  `status-badge`, `role-badge`, `confirm`, `data-table-shell`.
+- **This slice installs (net-new, nothing else needs them):**
+  `popover`, `calendar`, `command`, `accordion`.
+- **Composed patterns** (registry has no component — built once in
+  `components/common/`, edited tight, reused by both dialogs):
+  `combobox-field.tsx` (`command`+`popover` — searchable guest/room
+  pickers; chosen over plain Select because hotel guest/room lists don't
+  scroll well), `date-range-field.tsx` (`calendar`+`popover`+`button` —
+  check-in/out range).
+
+### Pages
+
+- **Sections** — `/supervisor/setup/sections`. `PageHeader`
+  ("Sections" + `N sections · M rooms` + primary **New section**).
+  **`accordion`**: each section row = label · room count · `⋯` (Rename);
+  expand → a dense **wrapped chip grid of rooms** + inline **Add room**;
+  a room chip → `⋯` (Rename / Reassign section via `combobox-field`).
+  Master/detail in one dense view, no drill-down. `EmptyState` (no
+  sections), `ErrorState` (retry), skeleton accordion on first load.
+- **Provisioning / Check-in** — `/supervisor/provisioning`. `PageHeader`
+  ("Provisioning" + `N active stays` + primary **Check in guest**).
+  Toolbar: status segmented (Active / Ended / All) + client search.
+  `data-table-shell`: guest (avatar+name) · room · section · `check-in →
+  out` (compact) · **status as a quiet `•` dot + label, not a loud pill**
+  · `⋯` (dropdown-menu: **Move guest…**, **Check out**). Reflows to cards
+  `< md`.
+  - **Move guest** `Dialog` — deliberate, not a generic edit (D20 is the
+    product's one stateful mutation): shows `current room · section ──▶
+    [room combobox]`, live-previews the resulting section, and carries the
+    honest §6 line in-UI ("re-binds immediately; the guest sees it on next
+    refresh — no re-login"). **Await + toast**, not optimistic.
+  - **Check out** → the auth `confirm` (AlertDialog) primitive.
+  - **Check in guest** `Dialog` — single-column, `max-w` capped: guest
+    `combobox-field` (filtered to no-active-stay), room `combobox-field`,
+    `date-range-field`; auth's async/skeleton bar.
+- **Nav (this slice's wiring):** add a **Sections** item under
+  `Setup` (the existing `supervisorNav` "Sections & Rosters" entry →
+  point its Sections half here; Rosters stays a next-slice stub);
+  **Guest Provisioning** (existing nav entry, `/supervisor/provisioning`)
+  → the Check-in page. Routes wired in `App.tsx` + `supervisorNav`.
+
+### Design system & tightness — coordinate at the auth merge (NOT now)
+
+The shell/primitive uniformity-and-tightness pass is **auth-slice-owned and
+in-flight** (its scope includes retrofitting the placeholder shells onto
+the primitives and the monochrome token cleanup incl. the stray dark
+`--sidebar-primary` indigo at `index.css:112`). Two agents tightening the
+same global tokens in parallel produces a merge mess and an incoherent
+product. So this slice **does not edit `index.css`/primitives**; it records
+the target so it is applied **once, coordinated, when auth's layer merges**:
+
+- **Aesthetic:** an operations console (Linear / Vercel-dashboard /
+  flight-ops) — calm, dense, precise. Color = meaning only (`destructive`;
+  a single operational accent deferred to the awareness/decision surfaces).
+- **Tighten geometry:** target `--radius ≈ 0.4rem` (current `0.625rem`
+  with xl/2xl/3xl multipliers is pillowy for an ops tool); hairline
+  borders; compact controls (`h-9`); denser table rhythm.
+- **Hierarchy by weight, not size**; status by weight + a quiet dot, never
+  loud pills.
+- **Action:** owner of the merge applies these to the shared tokens once;
+  this slice's pages are built to *look right under that target* and
+  verified at the merge seam (pairs with the §6 / contract-snapshot
+  coordination — same checkpoint).
 
 ## 10. Test bench
 
@@ -458,3 +527,8 @@ green.
   additively if/when multi-property query patterns demand it.
 - **`staff_profile` / roster / skills / availability** — the routing slice,
   the immediate next segment after this one.
+- **Global design-system tightness** (radius ≈ 0.4rem, density, accent
+  policy) — captured in §9; applied once, coordinated, at the auth-layer
+  merge (same checkpoint as the §6 / contract-snapshot seam). Deliberately
+  *not* edited by this slice to avoid parallel token-fighting with the
+  in-flight auth uniformity layer.
