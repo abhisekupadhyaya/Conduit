@@ -1,3 +1,5 @@
+import { PageHeader } from "@/components/layout/page-header"
+import { EmptyState } from "@/components/common/empty-state"
 import { useDecisionQueue } from "@/shell/supervisor/hooks/use-supervisor"
 
 // Awareness Stream — watch, no action (D2). The decision-queue count is a
@@ -9,33 +11,23 @@ export function SupervisorHome() {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Awareness Stream</h1>
-        <span className="text-muted-foreground text-xs">
-          {decisions.isLoading
-            ? "decisions…"
-            : decisions.isError
-              ? "decisions: unavailable"
-              : `${pending ?? 0} pending decision(s)`}
-        </span>
-      </div>
-      <p className="text-muted-foreground text-sm">
-        Live oversight of all requests, tasks, and glitches. No action here —
-        the decision queue is where the supervisor acts (D2/D9).
-      </p>
-      <div className="grid gap-4 pt-4 md:grid-cols-3">
-        {["Incoming", "Task delegation", "Recent work"].map((p) => (
-          <div
-            key={p}
-            className="bg-card text-card-foreground rounded-xl border p-4"
-          >
-            <div className="text-sm font-medium">{p}</div>
-            <div className="text-muted-foreground mt-2 text-xs">
-              Telemetry stream — to be wired to the event log.
-            </div>
-          </div>
-        ))}
-      </div>
+      <PageHeader
+        title="Awareness Stream"
+        description="Live oversight of all requests, tasks, and glitches. No action here — the decision queue is where the supervisor acts (D2/D9)."
+        actions={
+          <span className="text-muted-foreground text-xs">
+            {decisions.isLoading
+              ? "decisions…"
+              : decisions.isError
+                ? "decisions: unavailable"
+                : `${pending ?? 0} pending decision(s)`}
+          </span>
+        }
+      />
+      <EmptyState
+        title="Telemetry stream"
+        hint="Incoming · Task delegation · Recent work — to be wired to the event log."
+      />
     </div>
   )
 }

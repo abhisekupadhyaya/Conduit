@@ -9,15 +9,13 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 
-from fastapi import Depends
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.core.exceptions import ForbiddenError
+from conduit.core.config import get_settings
+from conduit.core.exceptions import AuthError, ForbiddenError
 from conduit.core.security import decode_token
 from conduit.shared.db import get_session as _get_session
-
-_bearer = HTTPBearer(auto_error=True)
 
 
 async def db_session() -> AsyncGenerator[AsyncSession, None]:
@@ -31,10 +29,12 @@ class Actor:
     role: str
 
 
-async def current_actor(
-    creds: HTTPAuthorizationCredentials = Depends(_bearer),
-) -> Actor:
-    payload = decode_token(creds.credentials)
+async def current_actor(request: Request) -> Actor:
+    s = get_settings()
+    token = request.cookies.get(s.cookie_name)
+    if not token:
+        raise AuthError("not authenticated")
+    payload = decode_token(token)
     return Actor(id=str(payload.get("sub")), role=str(payload.get("role")))
 
 

@@ -13,5 +13,6 @@ Firm-first order to implement (per schema-draft "Firm" list):
 from __future__ import annotations
 
 from conduit.shared.db import Base
+from conduit.shared.models.account import Account
 
-__all__ = ["Base"]
+__all__ = ["Base", "Account"]

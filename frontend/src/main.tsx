@@ -6,7 +6,9 @@ import "./index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider"
 import { AuthProvider } from "@/auth/auth-provider"
+import { AppBootSplash } from "@/components/app-boot-splash"
 import { TooltipProvider } from "@/components/ui/tooltip"
+import { Toaster } from "@/components/ui/sonner"
 import { queryClient } from "@/lib/query-client"
 
 createRoot(document.getElementById("root")!).render(
@@ -15,9 +17,12 @@ createRoot(document.getElementById("root")!).render(
       <QueryClientProvider client={queryClient}>
         <BrowserRouter>
           <AuthProvider>
-            <TooltipProvider>
-              <App />
-            </TooltipProvider>
+            <AppBootSplash>
+              <TooltipProvider>
+                <App />
+                <Toaster />
+              </TooltipProvider>
+            </AppBootSplash>
           </AuthProvider>
         </BrowserRouter>
       </QueryClientProvider>

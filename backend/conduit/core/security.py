@@ -35,3 +35,42 @@ def decode_token(token: str) -> dict[str, Any]:
         return jwt.decode(token, s.jwt_secret, algorithms=[s.jwt_alg])
     except jwt.PyJWTError as e:  # pragma: no cover - thin wrapper
         raise AuthError("invalid or expired session") from e
+
+
+from fastapi import Response
+from passlib.hash import bcrypt
+
+_BCRYPT_MAX = 72
+
+
+def _clamp(pw: str) -> bytes:
+    return pw.encode("utf-8")[:_BCRYPT_MAX]
+
+
+def hash_password(pw: str) -> str:
+    return bcrypt.hash(_clamp(pw))
+
+
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.verify(_clamp(pw), hashed)
+    except ValueError:
+        return False
+
+
+def set_session_cookie(resp: Response, token: str) -> None:
+    s = get_settings()
+    resp.set_cookie(
+        key=s.cookie_name,
+        value=token,
+        httponly=True,
+        secure=s.cookie_secure,
+        samesite=s.cookie_samesite,
+        path="/",
+        max_age=s.jwt_ttl_minutes * 60,
+    )
+
+
+def clear_session_cookie(resp: Response) -> None:
+    s = get_settings()
+    resp.delete_cookie(key=s.cookie_name, path="/")

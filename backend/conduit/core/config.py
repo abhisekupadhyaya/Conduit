@@ -23,6 +23,18 @@ class Settings(BaseSettings):
     jwt_alg: str = "HS256"
     jwt_ttl_minutes: int = 720
 
+    cookie_name: str = "conduit_session"
+    cookie_secure: bool = False  # env-driven: true in prod (https), false on localhost
+    cookie_samesite: str = "lax"
+
+    seed_supervisor_username: str = ""
+    seed_supervisor_password: str = ""
+
+    test_admin_url: str = (
+        "postgresql+asyncpg://conduit:conduit@localhost:5432/postgres"
+    )
+    test_database_name: str = "conduit_test"
+
     openai_api_key: str = ""
     openai_model: str = "gpt-5.4-mini"
     openai_base_url: str = "https://api.openai.com/v1"

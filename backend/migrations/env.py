@@ -43,4 +43,28 @@ async def run_migrations_online() -> None:
 if context.is_offline_mode():
     run_migrations_offline()
 else:
-    asyncio.run(run_migrations_online())
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        # No running loop — the normal `alembic` CLI path.
+        asyncio.run(run_migrations_online())
+    else:
+        # Called from inside a running loop (the async test-bench fixture
+        # invokes command.upgrade()). asyncio.run() can't nest, so drive the
+        # async migration in a dedicated thread with its own loop. CLI
+        # behaviour above is unchanged.
+        import threading
+
+        _err: list[BaseException] = []
+
+        def _runner() -> None:
+            try:
+                asyncio.run(run_migrations_online())
+            except BaseException as exc:  # surface to the caller
+                _err.append(exc)
+
+        _t = threading.Thread(target=_runner)
+        _t.start()
+        _t.join()
+        if _err:
+            raise _err[0]

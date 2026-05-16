@@ -31,6 +31,10 @@ class ForbiddenError(ConduitError):
     status_code = 403
 
 
+class ConflictError(ConduitError):
+    status_code = 409
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ConduitError)
     async def _handle(_: Request, exc: ConduitError) -> JSONResponse:

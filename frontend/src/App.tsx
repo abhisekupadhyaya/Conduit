@@ -9,6 +9,11 @@ import { supervisorNav } from "@/shell/supervisor/nav"
 import { GuestConversation } from "@/shell/guest"
 import { ServicerQueue } from "@/shell/servicer"
 import { SupervisorHome } from "@/shell/supervisor"
+import { GuestSettings } from "@/shell/guest/settings"
+import { ServicerSettings } from "@/shell/servicer/settings"
+import { SupervisorSettings } from "@/shell/supervisor/pages/settings"
+import { ManageServicers } from "@/shell/supervisor/pages/manage-servicers"
+import { ManageGuests } from "@/shell/supervisor/pages/manage-guests"
 
 // One SPA, one shared shell, role-routed. Only the nav config differs.
 export default function App() {
@@ -26,6 +31,7 @@ export default function App() {
         }
       >
         <Route index element={<GuestConversation />} />
+        <Route path="settings" element={<GuestSettings />} />
       </Route>
 
       <Route
@@ -37,6 +43,7 @@ export default function App() {
         }
       >
         <Route index element={<ServicerQueue />} />
+        <Route path="settings" element={<ServicerSettings />} />
       </Route>
 
       <Route
@@ -48,6 +55,9 @@ export default function App() {
         }
       >
         <Route index element={<SupervisorHome />} />
+        <Route path="settings" element={<SupervisorSettings />} />
+        <Route path="accounts/servicers" element={<ManageServicers />} />
+        <Route path="accounts/guests" element={<ManageGuests />} />
         {/* Remaining supervisor pages render here as they are built. */}
         <Route path="*" element={<SupervisorHome />} />
       </Route>
