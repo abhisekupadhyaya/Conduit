@@ -379,7 +379,7 @@ git commit -m "feat(security): bcrypt password + session cookie helpers"
 - Modify: `backend/conduit/shared/models/__init__.py`
 - Test: `backend/tests/db/test_model_import.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/db/test_model_import.py`:
 
@@ -395,12 +395,12 @@ def test_account_table_registered_on_metadata():
     }
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/db/test_model_import.py -q`
 Expected: FAIL — `KeyError: 'account'`.
 
-- [ ] **Step 3: Implement the model**
+- [x] **Step 3: Implement the model**
 
 Create `conduit/shared/models/account.py`:
 
@@ -465,7 +465,7 @@ class Account(Base):
     )
 ```
 
-- [ ] **Step 4: Register on import**
+- [x] **Step 4: Register on import**
 
 Replace `conduit/shared/models/__init__.py` body so the model is imported (keep the module docstring) — ensure these lines exist:
 
@@ -476,12 +476,12 @@ from conduit.shared.models.account import Account
 __all__ = ["Base", "Account"]
 ```
 
-- [ ] **Step 5: Run it, expect pass**
+- [x] **Step 5: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/db/test_model_import.py -q`
 Expected: PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add conduit/shared/models/account.py conduit/shared/models/__init__.py tests/db/test_model_import.py
