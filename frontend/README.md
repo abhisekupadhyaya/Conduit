@@ -1,73 +1,73 @@
-# React + TypeScript + Vite
+# Conduit — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+One React SPA serving all three portals (guest / servicer / supervisor),
+role-routed to a **shared shell**. Project context:
+[../README.md](../README.md); architecture:
+[../docs/archi/](../docs/archi/).
 
-Currently, two official plugins are available:
+## Stack
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- **Vite + React + TypeScript**
+- **Tailwind CSS v4** + **shadcn/ui** (radix-nova), light/dark/system theme
+- **React Router** — role-based routing
+- **TanStack Query** — server state
 
-## React Compiler
+## Conventions
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- **All backend calls go through TanStack Query** — `useQuery` for reads
+  (live surfaces poll; the product's real-time model is polling-first),
+  `useMutation` for writes — in `src/shell/<portal>/hooks/`, over
+  `src/lib/api-client.ts`. **The only exception is auth** (login/logout),
+  which is a direct call in `src/auth/auth-provider`.
+- **One shared shell** (`src/components/layout/`); the only per-portal
+  difference is `src/shell/<portal>/nav.tsx`.
+- The theme switcher (light/dark/system) lives in the shared `nav-user`.
 
-## Expanding the ESLint configuration
+## Layout
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+src/
+  main.tsx          ThemeProvider → QueryClient → Router → Auth → Tooltip
+  App.tsx           role-routed; one shared shell per route
+  auth/             use-auth, auth-provider, require-auth, login-form/page
+  lib/              api-client, query-client, role-routing, utils
+  public/           landing (auth-aware redirect)
+  hooks/            shared hooks
+  components/
+    ui/             shadcn primitives
+    theme-provider.tsx
+    layout/         shared shell: app-shell, app-sidebar, nav-main, nav-user, app-brand
+  shell/
+    guest/          nav.tsx + index.tsx + hooks/
+    servicer/       nav.tsx + index.tsx + hooks/
+    supervisor/     nav.tsx + index.tsx + hooks/
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+## Develop
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+npm install
+npm run dev        # Vite dev server on :5173
+npm run build      # typecheck (tsc -b) + production build
+npm run lint
 ```
+
+Requires Node 18+ (developed on Node 24).
+
+## Environment
+
+`VITE_API_BASE` — absolute base URL of the backend API.
+
+- local: `http://localhost:8000/api` (default in `.env`)
+- prod : `https://api.<domain>/api`
+
+Copy `.env.example` → `.env.local` to override. An absolute cross-origin base
+means the backend must send CORS headers (a conscious divergence from the
+Amplify same-origin proxy — see
+[../docs/archi/decisions.md](../docs/archi/decisions.md) AD6).
+
+## Status
+
+Scaffolding. Pages render against the TanStack Query hooks with
+loading/empty/error states; backend endpoints are stubs, so live data appears
+once the backend behaviour lands. Structure first, behaviour next.

@@ -1,9 +1,27 @@
 # Conduit — Backend
 
-FastAPI backend. **Single deployable**: the lifecycle engine runs in-process
-(AD4), not as a second service. Architecture lives in
-[../docs/archi/](../docs/archi/); the data model (deliberately soft) in
+FastAPI backend, **single deployable**: the lifecycle engine runs in-process
+(AD4), not as a second service. Project context: [../README.md](../README.md);
+architecture: [../docs/archi/](../docs/archi/); data model (deliberately soft):
 [../docs/datamodels/](../docs/datamodels/).
+
+## Stack
+
+- **Python 3.12 + FastAPI**
+- **SQLAlchemy 2 (async) + asyncpg + Alembic**
+- **Pydantic / pydantic-settings** — typed env config
+- **PyJWT** — app-managed sessions (AD8)
+- **boto3** — S3 / MinIO · **httpx + tenacity** — bulkheaded OpenAI (AD11)
+
+## Conventions
+
+- The four portal slices (`guest/ servicer/ supervisor/ public/`) are the
+  **only** places with `api/ services/ dal/ schemas/`.
+- `engine/` lives under `shared/` (cross-portal runtime machinery).
+- Triage is **not** a slice — it's shared *domain* logic
+  (`shared/domain/`), triggered from `guest/services/intake.py`.
+- `dal/` is the only layer that touches the DB; the append-only event log is
+  the single source the awareness/analytics read-models build on.
 
 ## Layout
 
@@ -17,42 +35,45 @@ conduit/
   shared/
     db.py  models/        async SQLAlchemy + ORM (entities land here)
     events/               append-only event log (the observability spine)
-    domain/               triage · routing · lifecycle  (cross-portal mechanism;
-                          NOT a slice — triggered from guest/services/intake.py)
+    domain/               triage · routing · lifecycle  (cross-portal mechanism)
     engine/               runner · timers · spine · sweeper  (the lifecycle core)
     integrations/         openai (bulkheaded, AD11) · storage (S3/MinIO)
-migrations/               alembic (URL+metadata from settings)
+migrations/               alembic (URL + metadata from settings)
 tests/                    api · domain · engine · smoke
 ```
 
-Note: there is no `triage/` slice and no `services/dal/schemas` outside the
-four portals — triage is shared *domain* logic, and `engine/` lives under
-`shared/`.
+## Develop
 
-## Local dev
-
-Backend reaches the docker-compose **Postgres** (RDS alternative) and **MinIO**
-(S3 alternative) by **service name on the internal port**:
-
-```
-CONDUIT_DATABASE_URL=postgresql+asyncpg://conduit:conduit@postgres:5432/conduit
-CONDUIT_S3_ENDPOINT_URL=http://minio:9000
+```bash
+# .venv already created; otherwise:
+#   python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
+.venv/bin/uvicorn apps.api_main:app --reload --port 8000
+.venv/bin/pytest -q                  # tests
+.venv/bin/alembic upgrade head       # once models exist
 ```
 
-Copy `.env.example` → `.env` (already provided with verified local values).
+Requires Python 3.12.
 
-```
-pip install -e ".[dev]"
-alembic upgrade head        # once models exist
-uvicorn apps.api_main:app --reload --port 8000
-```
+## Environment
 
-The SPA calls `http://localhost:8000/api` (absolute base), so the API is
-served under `/api` with CORS enabled for the SPA origin — the conscious AD6
-divergence (backend owns CORS instead of an Amplify same-origin proxy).
+Config is env-driven (prefix `CONDUIT_`); copy `.env.example` → `.env`.
+
+| Var | Purpose | Local default |
+|---|---|---|
+| `CONDUIT_DATABASE_URL` | Postgres (the RDS alternative) | `postgresql+asyncpg://…@postgres:5432/…` |
+| `CONDUIT_S3_ENDPOINT_URL` | MinIO (the S3 alternative) | `http://minio:9000` |
+| `CONDUIT_API_PREFIX` | API mount path | `/api` |
+| `CONDUIT_CORS_ORIGINS` | allowed SPA origin | `http://localhost:5173` |
+| `CONDUIT_OPENAI_*` | LLM (bulkheaded) | model `gpt-5.4-mini` |
+
+Postgres/MinIO are reached **by service name on the internal port** (Docker
+network), not the host-published ports. The API is served under `/api` with
+CORS enabled for the SPA origin — the conscious AD6 divergence (backend owns
+CORS instead of an Amplify same-origin proxy).
 
 ## Status
 
-Scaffolding only. Every endpoint and domain/engine function raises
-`NotImplementedError`; models are intentionally empty until the data model is
-hardened (it is marked "subject to change"). Structure first, behaviour next.
+Scaffolding. The app composes and smoke-tests; every endpoint and
+domain/engine function raises `NotImplementedError`, and ORM models are
+intentionally empty until the data model is hardened (it is marked *subject to
+change*). Structure first, behaviour next.
