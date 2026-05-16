@@ -7,7 +7,7 @@ import { guestNav } from "@/shell/guest/nav"
 import { servicerNav } from "@/shell/servicer/nav"
 import { supervisorNav } from "@/shell/supervisor/nav"
 import { GuestConversation } from "@/shell/guest/pages/conversation"
-import { ServicerQueue } from "@/shell/servicer"
+import { ServicerHome } from "@/shell/servicer"
 import { SupervisorHome } from "@/shell/supervisor"
 import { GuestSettings } from "@/shell/guest/settings"
 import { ServicerSettings } from "@/shell/servicer/settings"
@@ -48,7 +48,7 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<ServicerQueue />} />
+        <Route index element={<ServicerHome />} />
         <Route path="settings" element={<ServicerSettings />} />
       </Route>
 
