@@ -37,6 +37,14 @@
   ],
   [
     "GET",
+    "/api/supervisor/rosters"
+  ],
+  [
+    "GET",
+    "/api/supervisor/rosters/{roster_id}/assignments"
+  ],
+  [
+    "GET",
     "/api/supervisor/sections"
   ],
   [
@@ -74,6 +82,14 @@
   [
     "PATCH",
     "/api/supervisor/rooms/{room_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/rosters/{roster_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/rosters/{roster_id}/assignments/{assignment_id}"
   ],
   [
     "PATCH",
@@ -130,6 +146,14 @@
   [
     "POST",
     "/api/supervisor/rooms"
+  ],
+  [
+    "POST",
+    "/api/supervisor/rosters"
+  ],
+  [
+    "POST",
+    "/api/supervisor/rosters/{roster_id}/assignments"
   ],
   [
     "POST",
