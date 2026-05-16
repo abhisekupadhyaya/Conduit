@@ -29,6 +29,7 @@ export const supervisorNav: NavConfig = {
       items: [
         { title: "Sections", url: "/supervisor/setup/sections" },
         { title: "Issue Codes", url: "/supervisor/setup/issue-codes" },
+        { title: "Staff", url: "/supervisor/setup/staff" },
         { title: "Rosters", url: "/supervisor/setup/rosters" },
         { title: "SLA Presets", url: "/supervisor/setup/sla" },
         { title: "Escalation Ladder", url: "/supervisor/setup/escalation" },
