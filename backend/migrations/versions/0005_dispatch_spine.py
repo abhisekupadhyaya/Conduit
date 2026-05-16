@@ -285,6 +285,18 @@ def upgrade() -> None:
         "ix_timer_state_fire_at", "timer", ["state", "fire_at"],
         unique=False,
     )
+    # failed_transitions: engine never-silent dead-letter (B2). FK -> timer,
+    # so created after `timer` / dropped before it (FK-safe order).
+    op.create_table(
+        "failed_transitions",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("timer_id", sa.UUID(), nullable=False),
+        sa.Column("error", sa.String(), nullable=False),
+        sa.Column("at", sa.DateTime(timezone=True),
+                  server_default=sa.text("now()"), nullable=False),
+        sa.ForeignKeyConstraint(["timer_id"], ["timer.id"]),
+        sa.PrimaryKeyConstraint("id"),
+    )
 
     # --- recommendation detail tables (6) --------------------------------
     op.create_table(
@@ -481,6 +493,7 @@ def downgrade() -> None:
     # Core tables — FK-safe order: timer -> {work_order, escalation};
     # cross_dept_notification -> work_order; recommendation -> escalation;
     # glitch/work_order/escalation -> child_sub_request.
+    op.drop_table("failed_transitions")
     op.drop_index("ix_timer_state_fire_at", table_name="timer")
     op.drop_table("timer")
     op.drop_table("recommendation")

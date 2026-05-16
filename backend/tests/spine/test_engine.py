@@ -22,3 +22,19 @@ async def test_cancel_for_marks_cancelled(db, make_child):
     await db.flush()
     rows = (await db.execute(select(Timer).where(Timer.child_id == child.id))).scalars().all()
     assert all(r.state == "cancelled" for r in rows)
+
+
+from conduit.shared.engine import runner
+
+
+@pytest.mark.asyncio
+async def test_tick_fires_only_due_pending(db, make_child):
+    child = await make_child(db)
+    from conduit.shared.engine import timers
+    past = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=1)
+    future = dt.datetime.now(dt.UTC) + dt.timedelta(hours=1)
+    await timers.arm(db, "child_id", child.id, timers.TimerType.ACCEPT_WINDOW, fire_at=past)
+    await timers.arm(db, "child_id", child.id, timers.TimerType.FULFILMENT_SLA, fire_at=future)
+    await db.flush()
+    fired = await runner.tick(db)
+    assert fired == 1   # only the past one
