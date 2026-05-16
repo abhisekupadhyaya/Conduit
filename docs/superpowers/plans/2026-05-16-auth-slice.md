@@ -586,7 +586,7 @@ git commit -m "feat(migration): 0001 account table + lower(username) unique"
 - Modify: `backend/pyproject.toml` (pytest-cov + coverage cfg)
 - Replace: `backend/tests/conftest.py`
 
-- [ ] **Step 1: Switch `current_actor` to read the cookie**
+- [x] **Step 1: Switch `current_actor` to read the cookie**
 
 Replace the `_bearer`/`current_actor` section of `conduit/core/deps.py` with:
 
@@ -608,7 +608,7 @@ async def current_actor(request: Request) -> Actor:
 
 Remove the now-unused `HTTPBearer`/`HTTPAuthorizationCredentials` imports and `_bearer`. Keep `db_session`, `Actor`, `require_roles` unchanged (they depend on `current_actor`).
 
-- [ ] **Step 2: Add pytest-cov + coverage config**
+- [x] **Step 2: Add pytest-cov + coverage config**
 
 In `pyproject.toml` `[project.optional-dependencies] dev`, add `"pytest-cov>=5.0"`. Append:
 
@@ -627,7 +627,7 @@ testpaths = ["tests"]
 Run: `.venv/bin/python -m pip install -e ".[dev]"`
 Expected: installs `pytest-cov`.
 
-- [ ] **Step 3: Replace `tests/conftest.py`**
+- [x] **Step 3: Replace `tests/conftest.py`**
 
 ```python
 """Test bench: a throwaway conduit_test DB built by alembic, function-scoped
@@ -748,12 +748,12 @@ async def login(client: AsyncClient):
     return _login
 ```
 
-- [ ] **Step 4: Run the DB + migration + model tests**
+- [x] **Step 4: Run the DB + migration + model tests**
 
 Run: `.venv/bin/python -m pytest tests/db -q`
 Expected: PASS — schema builds via alembic, constraints enforced, case-insensitive uniqueness rejected. (Engine background loop is off because tests never start the app lifespan; the ASGI client does not run lifespan.)
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/core/deps.py pyproject.toml tests/conftest.py
