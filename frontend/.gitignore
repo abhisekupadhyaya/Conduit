@@ -1,0 +1,74 @@
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+package-lock.json
+
+# Build output
+/dist
+/build
+
+# Vite specific
+.vite/
+
+# TypeScript
+*.tsbuildinfo
+
+# Environment files (.env holds only non-secret defaults but is kept local;
+# .env.example is the committed template)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+!.env.example
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs
+*.log
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Testing
+/coverage
+
+# Temporary files
+*.tmp
+*.temp
+
+# Cache
+.cache/
+.npm/
+
+# Compiled output
+*.min.js
+*.min.css
+
+# Miscellaneous
+*.bak
+*.swp
+*~
+
+# React specific
+.eslintcache
+
+# Vite specific
+vite.config.ts.timestamp-*
+
+# amplify
+.amplify
+amplifyconfiguration*
