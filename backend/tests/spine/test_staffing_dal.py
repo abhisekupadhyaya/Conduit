@@ -709,3 +709,185 @@ async def test_svc_update_assignment_404(db, make_account):
             db, sup.id, r.id, uuid.uuid4(),
             section_id=None, assignment=None, status="disabled",
         )
+
+
+# ===========================================================================
+# Task 5b — supervisor-self-contained assignments-with-roster DAL helper for
+# the GET /staff derived-availability extension (user-authorized scope add).
+# MIRRORS servicer/dal/self.py::get_assignments (fetch assignments, batch the
+# rosters by id, attach Roster as a plain .roster attribute — no ORM
+# relationship, no N+1) but lives in supervisor/dal (NO conduit.servicer
+# import — the inverse of Resolution E / cross-portal forbidden). Add-only,
+# no flush. The pure shared.domain.availability predicate consumes the rows.
+# ===========================================================================
+from conduit.shared.domain import availability  # noqa: E402
+
+
+async def test_dal_assignments_with_roster_no_servicer_import():
+    """The supervisor staff DAL must NOT pull in conduit.servicer (forbidden
+    cross-portal import) — it reimplements the fetch-and-attach itself."""
+    import ast
+    import inspect
+
+    tree = ast.parse(inspect.getsource(dal))
+    imported: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.update(n.name for n in node.names)
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            imported.add(node.module)
+    assert not any(m.startswith("conduit.servicer") for m in imported), (
+        f"forbidden cross-portal import: {imported}"
+    )
+    assert hasattr(dal, "get_assignments_with_roster")
+
+
+async def test_dal_assignments_with_roster_attaches_and_batches(
+    db, make_account, monkeypatch
+):
+    srv = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}")
+    p = Property(name=f"P-{uuid.uuid4().hex[:8]}")
+    db.add(p)
+    await db.flush()
+    sec1 = Section(property_id=p.id, label="A")
+    sec2 = Section(property_id=p.id, label="B")
+    db.add_all([sec1, sec2])
+    await db.flush()
+    now = _dt.datetime(2026, 5, 16, 8, 0, tzinfo=_dt.UTC)
+    r1 = Roster(
+        property_id=p.id, shift_start=now,
+        shift_end=now + _dt.timedelta(hours=8),
+    )
+    r2 = Roster(
+        property_id=p.id, shift_start=now + _dt.timedelta(days=1),
+        shift_end=now + _dt.timedelta(days=1, hours=8),
+    )
+    db.add_all([r1, r2])
+    await db.flush()
+    db.add_all([
+        RosterAssignment(
+            roster_id=r1.id, account_id=srv.id,
+            section_id=sec1.id, assignment="owner",
+        ),
+        RosterAssignment(
+            roster_id=r2.id, account_id=srv.id,
+            section_id=sec2.id, assignment="owner",
+        ),
+    ])
+    await db.flush()
+
+    # Count Roster SELECTs: must be ONE batched query for both assignments
+    # (no N+1) — mirrors servicer/dal/self.py::get_assignments.
+    real_execute = type(db).execute
+    roster_selects = 0
+
+    async def counting_execute(self, stmt, *a, **kw):
+        nonlocal roster_selects
+        txt = str(stmt)
+        if "FROM roster " in txt and "roster_assignment" not in txt:
+            roster_selects += 1
+        return await real_execute(self, stmt, *a, **kw)
+
+    monkeypatch.setattr(type(db), "execute", counting_execute)
+    rows = await dal.get_assignments_with_roster(db, srv.id)
+    monkeypatch.undo()
+
+    assert len(rows) == 2
+    assert roster_selects == 1, "rosters must be fetched in ONE batched query"
+    for a in rows:
+        assert a.roster is not None
+        assert a.roster.id == a.roster_id
+    # The pure predicate consumes them unchanged: at `now` r1's window is
+    # live (on shift) — proves the attach satisfies the availability contract.
+    assert availability.on_shift(rows, now) is True
+    assert availability.on_shift(rows, now + _dt.timedelta(days=5)) is False
+
+
+async def test_dal_assignments_with_roster_empty_no_roster_query(
+    db, make_account, monkeypatch
+):
+    """No assignments => returns [] WITHOUT issuing the roster batch query
+    (matches the servicer helper's early return)."""
+    srv = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}")
+    real_execute = type(db).execute
+    roster_selects = 0
+
+    async def counting_execute(self, stmt, *a, **kw):
+        nonlocal roster_selects
+        if "FROM roster " in str(stmt) and "roster_assignment" not in str(
+            stmt
+        ):
+            roster_selects += 1
+        return await real_execute(self, stmt, *a, **kw)
+
+    monkeypatch.setattr(type(db), "execute", counting_execute)
+    rows = await dal.get_assignments_with_roster(db, srv.id)
+    monkeypatch.undo()
+    assert rows == []
+    assert roster_selects == 0
+
+
+async def test_dal_assignments_with_roster_add_only_no_flush(
+    db, make_account
+):
+    """Pure read: it must not leave anything pending nor flush (the merged
+    DAL discipline — services own flush; reads emit nothing)."""
+    srv = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}")
+    await dal.get_assignments_with_roster(db, srv.id)
+    assert not db.new and not db.dirty and not db.deleted
+
+
+# --- Task 5b service-layer derivation (composes the pure predicate) --------
+
+
+async def test_service_staff_derives_on_shift_and_available(
+    db, make_account
+):
+    """svc.list_staff / get_staff populate the two derived booleans using the
+    SAME pure predicate + an explicit `now`; un-profiled => available False,
+    on_shift profile-independent. Driven against the savepoint db (the spine
+    pattern — pytest-cov does not trace the ASGI client)."""
+    from conduit.core import clock
+
+    srv = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}")
+    unp = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}")
+    sup = await make_account("supervisor", f"s-{uuid.uuid4().hex[:8]}")
+    p = Property(name=f"P-{uuid.uuid4().hex[:8]}")
+    db.add(p)
+    await db.flush()
+    sec = Section(property_id=p.id, label="A")
+    db.add(sec)
+    await db.flush()
+    now = _dt.datetime(2026, 5, 16, 10, 0, tzinfo=_dt.UTC)
+    rr = await rsvc.create_roster(
+        db, sup.id, p.id,
+        now - _dt.timedelta(hours=2), now + _dt.timedelta(hours=6),
+    )
+    await db.flush()
+    await svc.create_profile(db, sup.id, srv.id, "housekeeping")
+    await rsvc.create_assignment(db, sup.id, rr.id, srv.id, sec.id, "owner")
+    await db.flush()
+
+    import freezegun
+
+    with freezegun.freeze_time(now):
+        assert clock.now() == now
+        rows = await svc.list_staff(db)
+        one = await svc.get_staff(db, srv.id)
+        unp_one = await svc.get_staff(db, unp.id)
+    by_id = {r["account_id"]: r for r in rows}
+    assert by_id[srv.id]["on_shift"] is True
+    assert by_id[srv.id]["effective_available"] is True
+    assert by_id[unp.id]["profile"] is None
+    assert by_id[unp.id]["on_shift"] is False
+    assert by_id[unp.id]["effective_available"] is False
+    assert one["on_shift"] is True and one["effective_available"] is True
+    assert unp_one["effective_available"] is False
+    assert unp_one["on_shift"] is False
+
+    out_at = now + _dt.timedelta(days=2)
+    with freezegun.freeze_time(out_at):
+        rows2 = await svc.list_staff(db)
+    by_id2 = {r["account_id"]: r for r in rows2}
+    assert by_id2[srv.id]["on_shift"] is False
+    assert by_id2[srv.id]["effective_available"] is False

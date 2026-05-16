@@ -12,15 +12,18 @@ here verbatim against the Task-2 ``EventStaff*`` detail classes.
 """
 from __future__ import annotations
 
+import datetime as dt
 import uuid
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from conduit.core import clock
 from conduit.core.exceptions import (
     ConflictError,
     NotFoundError,
     ValidationError,
 )
+from conduit.shared.domain import availability
 from conduit.shared.models import (
     Event,
     EventStaffProfileCreated,
@@ -31,10 +34,31 @@ from conduit.shared.models import (
 from conduit.supervisor.dal import staff as dal
 
 
+async def _derive(
+    s: AsyncSession, account_id: uuid.UUID, p: StaffProfile | None, now: dt.datetime
+) -> tuple[bool, bool]:
+    """Task 5b (user-authorized scope add): REAL derived availability via the
+    SAME pure ``shared.domain.availability`` predicate the servicer home
+    reads — single source of the rule, not re-derived here. ``on_shift`` is
+    profile-independent (assignments + window only). The
+    ``if p is None: return on_shift, False`` guard below is REQUIRED, not
+    merely defensive: ``availability.effective_available`` is not None-safe —
+    when a current window exists it dereferences ``profile.status`` and would
+    raise ``AttributeError`` on a None profile. Do not remove the guard.
+    Reads only: no flush, no event."""
+    assignments = await dal.get_assignments_with_roster(s, account_id)
+    on_shift = availability.on_shift(assignments, now)
+    if p is None:
+        return on_shift, False
+    return on_shift, availability.effective_available(p, assignments, now)
+
+
 async def list_staff(s: AsyncSession) -> list[dict]:
+    now = clock.now()
     out: list[dict] = []
     for acc in await dal.list_servicer_accounts(s):
         p = await dal.get_profile(s, acc.id)
+        on_shift, eff = await _derive(s, acc.id, p, now)
         out.append(
             {
                 "account_id": acc.id,
@@ -47,6 +71,8 @@ async def list_staff(s: AsyncSession) -> list[dict]:
                     "status": p.status,
                 },
                 "skills": await dal.get_skills(s, acc.id),
+                "on_shift": on_shift,
+                "effective_available": eff,
             }
         )
     return out
@@ -57,6 +83,8 @@ async def get_staff(s: AsyncSession, account_id: uuid.UUID) -> dict:
     if acc is None or acc.role != "servicer":
         raise NotFoundError("servicer account not found")
     p = await dal.get_profile(s, account_id)
+    now = clock.now()
+    on_shift, eff = await _derive(s, account_id, p, now)
     return {
         "account_id": acc.id,
         "display_name": acc.display_name,
@@ -68,6 +96,8 @@ async def get_staff(s: AsyncSession, account_id: uuid.UUID) -> dict:
             "status": p.status,
         },
         "skills": await dal.get_skills(s, account_id),
+        "on_shift": on_shift,
+        "effective_available": eff,
     }
 
 

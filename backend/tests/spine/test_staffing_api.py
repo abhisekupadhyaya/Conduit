@@ -879,3 +879,177 @@ async def test_servicer_presence_one_event_per_change(
         )
     ).scalar_one()
     assert str(ev.actor_account_id) == str(srv.id)
+
+
+# ===========================================================================
+# Task 5b — Supervisor GET /staff REAL derived availability (user-authorized
+# scope add; deliberately diverges from spec §9.3's servicer-home-only
+# dataflow). Two top-level derived booleans on StaffOut: on_shift +
+# effective_available, computed by the SAME pure shared.domain.availability
+# predicate the servicer home reads, pinned via clock.now() (freezegun).
+#
+# Reuses the Task-7 freezegun-under-login pattern: roster windows are seeded
+# UNFROZEN through the real supervisor API (_seed_servicer_on_roster /
+# _window = 2026-05-16 08:00–16:00 UTC; _INSIDE / _OUTSIDE), the supervisor
+# login + GET /staff run together inside one freeze_time block so the JWT
+# validates at the frozen instant. Reads emit NO events (append-only guard
+# must see exactly the same events).
+# ===========================================================================
+
+
+def _staff_row(body: list[dict], account_id) -> dict:
+    return next(r for r in body if r["account_id"] == str(account_id))
+
+
+async def test_staff_on_shift_available_inside_window(
+    client, make_account, login, db
+):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    sup = await _sup_login(make_account, login)
+    with freeze_time(_INSIDE):
+        await login(sup.username, _PW)
+        r = await client.get("/api/supervisor/staff")
+        one = await client.get(f"/api/supervisor/staff/{srv.id}")
+    assert r.status_code == 200, r.text
+    row = _staff_row(r.json(), srv.id)
+    assert row["on_shift"] is True
+    assert row["effective_available"] is True
+    # profile/skills shape unchanged; no internals leak.
+    assert row["profile"] == {
+        "staff_class": "housekeeping",
+        "presence": "working",
+        "status": "active",
+    }
+    assert row["skills"] == []
+    assert "secret_hash" not in r.text
+    assert one.status_code == 200, one.text
+    ob = one.json()
+    assert ob["on_shift"] is True and ob["effective_available"] is True
+
+
+async def test_staff_off_shift_unavailable_outside_window(
+    client, make_account, login, db
+):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    sup = await _sup_login(make_account, login)
+    with freeze_time(_OUTSIDE):
+        await login(sup.username, _PW)
+        r = await client.get("/api/supervisor/staff")
+        one = await client.get(f"/api/supervisor/staff/{srv.id}")
+    row = _staff_row(r.json(), srv.id)
+    assert row["on_shift"] is False
+    assert row["effective_available"] is False
+    ob = one.json()
+    assert ob["on_shift"] is False and ob["effective_available"] is False
+
+
+async def test_staff_disabled_profile_in_window_not_available(
+    client, make_account, login, db
+):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    sup = await _sup_login(make_account, login)
+    await login(sup.username, _PW)
+    pr = await client.patch(
+        f"/api/supervisor/staff/{srv.id}/profile",
+        json={"status": "disabled"},
+    )
+    assert pr.status_code == 200, pr.text
+    with freeze_time(_INSIDE):
+        await login(sup.username, _PW)
+        r = await client.get("/api/supervisor/staff")
+    row = _staff_row(r.json(), srv.id)
+    # on shift (assignment window live) but disabled => not available.
+    assert row["on_shift"] is True
+    assert row["effective_available"] is False
+
+
+async def test_staff_on_break_in_window_not_available(
+    client, make_account, login, db
+):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    sup = await _sup_login(make_account, login)
+    # Servicer sets presence on_break IN-window (presence_set_at frozen here).
+    with freeze_time(_INSIDE):
+        await login(srv.username, _PW)
+        pp = await client.put(
+            "/api/servicer/presence", json={"presence": "on_break"}
+        )
+        assert pp.status_code == 200, pp.text
+        await login(sup.username, _PW)
+        r = await client.get("/api/supervisor/staff")
+    row = _staff_row(r.json(), srv.id)
+    assert row["on_shift"] is True
+    assert row["effective_available"] is False
+
+
+async def test_staff_unprofiled_effective_available_false(
+    client, make_account, login, db
+):
+    """Un-profiled servicer (profile is None): effective_available MUST be
+    False (the pure predicate returns False when profile is None); on_shift
+    is profile-independent — an un-profiled servicer has no assignments, so
+    the predicate yields False here."""
+    srv = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}", _PW)
+    sup = await _sup_login(make_account, login)
+    with freeze_time(_INSIDE):
+        await login(sup.username, _PW)
+        r = await client.get("/api/supervisor/staff")
+        one = await client.get(f"/api/supervisor/staff/{srv.id}")
+    row = _staff_row(r.json(), srv.id)
+    assert row["profile"] is None
+    assert row["effective_available"] is False
+    assert row["on_shift"] is False
+    ob = one.json()
+    assert ob["profile"] is None
+    assert ob["effective_available"] is False
+    assert ob["on_shift"] is False
+
+
+async def test_staff_derived_fields_parse_back_extra_forbid(
+    client, make_account, login, db
+):
+    """The 2 new keys must round-trip through StaffOut(extra='forbid') and
+    NOT introduce any other unexpected key — defends the parse-back guard."""
+    from conduit.supervisor.schemas.staff import StaffOut
+
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    sup = await _sup_login(make_account, login)
+    with freeze_time(_INSIDE):
+        await login(sup.username, _PW)
+        r = await client.get("/api/supervisor/staff")
+    row = _staff_row(r.json(), srv.id)
+    assert set(row.keys()) == {
+        "account_id",
+        "display_name",
+        "profile",
+        "skills",
+        "on_shift",
+        "effective_available",
+    }
+    # extra="forbid" => any stray key would raise here.
+    StaffOut.model_validate(row)
+
+
+async def test_staff_reads_emit_no_events(
+    client, make_account, login, db
+):
+    """Derivation is a READ — GET /staff must append zero events (the
+    append-only guard counts events; this proves the new code path is
+    event-free)."""
+    import sqlalchemy as sa
+
+    from conduit.shared.models import Event
+
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    sup = await _sup_login(make_account, login)
+    before = (
+        await db.execute(sa.select(sa.func.count()).select_from(Event))
+    ).scalar_one()
+    with freeze_time(_INSIDE):
+        await login(sup.username, _PW)
+        await client.get("/api/supervisor/staff")
+        await client.get(f"/api/supervisor/staff/{srv.id}")
+    after = (
+        await db.execute(sa.select(sa.func.count()).select_from(Event))
+    ).scalar_one()
+    assert after == before, "GET /staff must emit no events"
