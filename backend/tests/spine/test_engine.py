@@ -207,9 +207,16 @@ async def test_d3_accept_window_breach_stalls_to_spine(db, make_account):
 
 async def _arm_open_stall_esc(db, h, *, cycle_count):
     """Seed an OPEN stall Escalation (with the stored reassign Rec the
-    auto-proceed will execute) carrying ``cycle_count`` forward — the D21
-    accumulator. Each supervisor_sla cycle is a distinct escalation that
-    inherits the running count (an escalation resolves ONCE; D2/§7.4)."""
+    auto-proceed will execute) at a GIVEN ``cycle_count``.
+
+    NOTE: this hand-sets ``cycle_count`` and therefore can ONLY back a
+    "runner→spine honors the D21 bound for a given cycle_count" unit
+    assertion — it does NOT (and must not) be used to claim the production
+    open_escalation→auto-proceed→open_escalation carry-forward chain. The
+    real-chain backstop is proven in
+    ``test_d3_supervisor_sla_auto_proceeds_then_hard_escalates`` below, which
+    NEVER hand-sets cycle_count (it comes from the real spine carry-forward).
+    """
     esc = Escalation(child_id=h["child"].id, trigger="stall", state="open",
                      cycle_count=cycle_count, raised_by_account_id=None)
     db.add(esc)
@@ -228,19 +235,52 @@ async def _arm_open_stall_esc(db, h, *, cycle_count):
     return esc
 
 
+async def _arm_stall_timer_in_past(db, child_id):
+    """Arm an accept_window timer in the past on the child → the next
+    ``runner.tick`` opens a stall Escalation through the REAL spine
+    (runner._fire_one → spine.open_escalation(child, 'stall')). Used to
+    represent both the initial stall and the post-reassign stall.
+
+    The C4/spine reassign effect (spine._execute_action) swaps the
+    WorkOrder assignee IN PLACE and does NOT re-arm an accept_window timer
+    in this slice (the post-reassign re-arm is Phase-E surface). Arming a
+    fresh accept_window timer on the SAME child is therefore the faithful
+    production representation of "the reassigned work also stalls": it
+    drives the identical runner→spine.open_escalation hop the first stall
+    took, so cycle 2's escalation cycle_count comes ENTIRELY from the real
+    spine carry-forward, never hand-set."""
+    db_now = (await db.execute(sa.select(sa.func.now()))).scalar_one()
+    from conduit.shared.engine import timers as t
+    await t.arm(db, "child_id", child_id, t.TimerType.ACCEPT_WINDOW,
+                fire_at=db_now - dt.timedelta(seconds=5))
+    await db.flush()
+
+
+async def _arm_supervisor_sla_in_past(db, esc_id):
+    """Arm the escalation's supervisor_sla timer in the past → the next
+    ``runner.tick`` auto-proceeds it through the REAL spine
+    (runner._fire_one → spine.apply_recommendation(auto_proceeded))."""
+    db_now = (await db.execute(sa.select(sa.func.now()))).scalar_one()
+    from conduit.shared.engine import timers as t
+    await t.arm(db, "escalation_id", esc_id, t.TimerType.SUPERVISOR_SLA,
+                fire_at=db_now - dt.timedelta(seconds=5))
+    await db.flush()
+
+
 @pytest.mark.asyncio
-async def test_d3_supervisor_sla_auto_proceeds_then_hard_escalates(
+async def test_d3_runner_spine_honors_d21_bound_for_given_cycle_count(
         db, make_account):
-    """supervisor_sla breach → spine.apply_recommendation(auto_proceeded):
-    the structural silence path (state auto_proceeded, resolved_by None).
-    Driving the supervisor_sla cycle forward (the D21 cycle_count accumulator)
-    until cycle_count+1 >= n_cycle_bound flips the runner→spine dispatch to
-    hard_escalated and no further auto-proceed occurs (D2 enforces the bound
-    internally — the runner just calls apply_recommendation)."""
+    """Runner→spine dispatch honors the D21 bound for a GIVEN cycle_count
+    (a hand-seeded unit assertion — NOT the production carry-forward chain;
+    see ``test_d3_supervisor_sla_auto_proceeds_then_hard_escalates`` for the
+    real chain). At cycle_count=0 the supervisor_sla breach auto-proceeds
+    (state auto_proceeded, resolved_by None, count→1, reassign executed);
+    at cycle_count=1 with n_cycle_bound=2 the runner→spine dispatch
+    hard-escalates INSTEAD (D21, enforced internally by D2 — the runner just
+    calls apply_recommendation)."""
     h = await _seed_routed_child(db, make_account, n_cycle_bound=2)
 
-    # n_cycle_bound=2. Cycle 1: an OPEN escalation at cycle_count=0 →
-    # apply_recommendation(auto_proceeded) → auto_proceeds (count→1).
+    # cycle_count=0 → apply_recommendation(auto_proceeded) → auto_proceeds.
     esc1 = await _arm_open_stall_esc(db, h, cycle_count=0)
     fired = await runner.tick(db)
     assert fired >= 1
@@ -260,8 +300,7 @@ async def test_d3_supervisor_sla_auto_proceeds_then_hard_escalates(
            .where(WorkOrder.child_id == h["child"].id))).scalar_one()
     assert wo1.assigned_servicer_id == h["target"].id
 
-    # Cycle 2: the next supervisor_sla cycle carries the count forward
-    # (cycle_count=1). 1+1 >= n_cycle_bound(2) → the runner→spine dispatch
+    # cycle_count=1, n_cycle_bound=2: 1+1 >= 2 → the runner→spine dispatch
     # hard-escalates INSTEAD of another auto-proceed (D21, enforced by D2).
     esc2 = await _arm_open_stall_esc(db, h, cycle_count=1)
     fired2 = await runner.tick(db)
@@ -278,6 +317,102 @@ async def test_d3_supervisor_sla_auto_proceeds_then_hard_escalates(
                  .where(EventEscalationResolved.escalation_id == esc2.id)
                  )).scalars().all()
     assert len(resolved2) == 1
+
+
+@pytest.mark.asyncio
+async def test_d3_supervisor_sla_auto_proceeds_then_hard_escalates(
+        db, make_account):
+    """The REAL D21 production backstop chain (Spec §9.2/§7.4 D21), driven
+    end-to-end through the runner + spine with NO hand-set cycle_count.
+
+    n_cycle_bound=2. Cycle 1: a stall opens an Escalation via the real
+    spine.open_escalation (cycle_count==0, no prior stall esc); its
+    supervisor_sla breach auto-proceeds (silence ≡ approve), reassigning the
+    work and advancing the running count to 1. Cycle 2: the reassigned work
+    ALSO stalls — a fresh stall opens a NEW Escalation via the real
+    spine.open_escalation, whose cycle_count==1 comes ENTIRELY from the
+    spine's stall-chain carry-forward (the prior stall esc was advanced to 1
+    by apply_recommendation); its supervisor_sla breach now hits the D21
+    bound (1+1 >= 2) → hard_escalate. The backstop is reachable in
+    production ONLY because open_escalation carries the count forward."""
+    h = await _seed_routed_child(db, make_account, n_cycle_bound=2)
+    child_id = h["child"].id
+
+    # --- Cycle 1: the initial stall opens an Escalation via the REAL spine.
+    await _arm_stall_timer_in_past(db, child_id)
+    fired = await runner.tick(db)
+    assert fired >= 1
+
+    esc1 = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == child_id)
+    )).scalars().all()
+    assert len(esc1) == 1
+    esc1 = esc1[0]
+    assert esc1.trigger == "stall" and esc1.state == "open"
+    # First stall for a fresh child → no prior stall esc → count starts at 0
+    # (the spine carry-forward seeds 0 when there is no prior; preserves D1).
+    assert esc1.cycle_count == 0
+
+    # supervisor_sla breach → real apply_recommendation(auto_proceeded).
+    await _arm_supervisor_sla_in_past(db, esc1.id)
+    fired = await runner.tick(db)
+    assert fired >= 1
+
+    er1 = (await db.execute(sa.select(Escalation)
+           .where(Escalation.id == esc1.id))).scalar_one()
+    assert er1.state == "auto_proceeded"          # structural silence path
+    assert er1.resolved_by_account_id is None
+    assert er1.cycle_count == 1                    # advanced by D2
+    # The reassign effect ran (the work was handed to the routed target).
+    wo1 = (await db.execute(sa.select(WorkOrder)
+           .where(WorkOrder.child_id == child_id))).scalar_one()
+    assert wo1.assigned_servicer_id == h["target"].id
+
+    # --- Cycle 2: the REASSIGNED work also stalls. The spine reassign effect
+    # swaps the assignee in place and does NOT re-arm an accept_window timer
+    # in this slice; arming a fresh accept_window timer on the SAME child is
+    # the faithful production representation — it drives the identical
+    # runner→spine.open_escalation hop. cycle_count on the new escalation
+    # MUST come from the real spine carry-forward, NOT hand-set.
+    await _arm_stall_timer_in_past(db, child_id)
+    fired = await runner.tick(db)
+    assert fired >= 1
+
+    all_esc = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == child_id)
+        .order_by(Escalation.created_at)
+    )).scalars().all()
+    assert len(all_esc) == 2  # a NEW stall escalation opened
+    esc2 = all_esc[1]
+    assert esc2.id != esc1.id
+    assert esc2.trigger == "stall" and esc2.state == "open"
+    # CARRY-FORWARD PROVEN: the new stall escalation inherits the running
+    # count from the prior (auto-proceeded) stall escalation via the real
+    # spine.open_escalation — NOT hand-set anywhere in this test.
+    assert esc2.cycle_count == 1
+
+    # supervisor_sla breach on cycle 2 → real apply_recommendation: the D21
+    # bound is now reachable in production (1+1 >= n_cycle_bound(2)).
+    await _arm_supervisor_sla_in_past(db, esc2.id)
+    fired = await runner.tick(db)
+    assert fired >= 1
+
+    er2 = (await db.execute(sa.select(Escalation)
+           .where(Escalation.id == esc2.id))).scalar_one()
+    assert er2.state == "hard_escalated"          # D21 backstop reached
+    assert er2.resolved_by_account_id is None
+    # hard_escalate does not bump cycle_count (it is the backstop, not a
+    # resolution); no further auto-proceed/reassign occurred.
+    assert er2.cycle_count == 1
+    resolved2 = (await db.execute(sa.select(EventEscalationResolved)
+                 .where(EventEscalationResolved.escalation_id == esc2.id)
+                 )).scalars().all()
+    assert len(resolved2) == 1
+    # No third escalation, no further reassign side effect.
+    final_esc = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == child_id)
+    )).scalars().all()
+    assert len(final_esc) == 2
 
 
 @pytest.mark.asyncio

@@ -237,6 +237,35 @@ async def open_escalation(s: AsyncSession, child: ChildSubRequest,
 
     actor_id = ctx.get("actor_account_id")
 
+    # §9.2/§7.4 D21: the D21 backstop is the slice's reason-to-exist —
+    # repeated stall→auto-proceed(reassign)→stall cycles MUST, after N
+    # cycles, hard-escalate. Each stall cycle is a DISTINCT Escalation
+    # (an escalation resolves ONCE; D2/§7.4), so the running ``cycle_count``
+    # accumulator has to be carried forward across the chain or every fresh
+    # stall escalation restarts at 0 and auto-proceeds forever (the D21
+    # bound would be UNREACHABLE in production for n_cycle_bound > 1).
+    #
+    # Seed the new escalation's ``cycle_count`` from the most-recent prior
+    # ``stall`` Escalation for the SAME child (engine-local read, the
+    # caller's session — the established shared/engine idiom; no commit).
+    # The prior was already advanced by ``apply_recommendation``'s increment
+    # when it auto-proceeded; the D21 gate (``cycle_count + 1 >=
+    # n_cycle_bound``) in ``apply_recommendation`` then advances the chain
+    # correctly. Scoped to ``trigger == "stall"`` ONLY — servicer_raised /
+    # triage_flag are NOT the backstop cycle. No prior stall escalation
+    # (first cycle / fresh child) → stays 0 (preserves D1).
+    carried_cycle_count = 0
+    if trig == EscalationTrigger.STALL.value:
+        prior = (await s.execute(
+            sa.select(Escalation.cycle_count)
+            .where(Escalation.child_id == child.id,
+                   Escalation.trigger == EscalationTrigger.STALL.value)
+            .order_by(Escalation.created_at.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+        if prior is not None:
+            carried_cycle_count = prior
+
     # --- Escalation(open) — C4 new-entity emission pattern (mirrors the
     # WorkOrder-creation hop in lifecycle._child_hops): instantiate, flush
     # for the id, emit EXACTLY ONE event via the writer. ``transition`` is
@@ -244,6 +273,7 @@ async def open_escalation(s: AsyncSession, child: ChildSubRequest,
     # is the server_default start state, not a transition). No second writer
     # path is invented.
     esc = Escalation(child_id=child.id, trigger=trig,
+                     cycle_count=carried_cycle_count,
                      raised_by_account_id=actor_id)
     s.add(esc)
     await s.flush()
