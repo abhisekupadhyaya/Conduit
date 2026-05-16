@@ -45,6 +45,14 @@
   ],
   [
     "GET",
+    "/api/supervisor/staff"
+  ],
+  [
+    "GET",
+    "/api/supervisor/staff/{account_id}"
+  ],
+  [
+    "GET",
     "/api/supervisor/stays"
   ],
   [
@@ -70,6 +78,10 @@
   [
     "PATCH",
     "/api/supervisor/sections/{section_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/staff/{account_id}/profile"
   ],
   [
     "PATCH",
@@ -125,6 +137,10 @@
   ],
   [
     "POST",
+    "/api/supervisor/staff/{account_id}/profile"
+  ],
+  [
+    "POST",
     "/api/supervisor/stays"
   ],
   [
@@ -134,5 +150,9 @@
   [
     "POST",
     "/api/supervisor/stays/{stay_id}/relocate"
+  ],
+  [
+    "PUT",
+    "/api/supervisor/staff/{account_id}/skills"
   ]
 ]
