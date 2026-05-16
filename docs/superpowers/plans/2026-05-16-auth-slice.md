@@ -1835,7 +1835,7 @@ git commit -m "chore(ui): add shadcn card/form/table/dialog/etc + form deps"
 
 **Files:** Modify `frontend/src/index.css`
 
-- [ ] **Step 1: Remove the stray chromatic dark sidebar token**
+- [x] **Step 1: Remove the stray chromatic dark sidebar token**
 
 In `src/index.css`, in the `.dark` block, change:
 
@@ -1851,7 +1851,7 @@ to:
 
 (matches the monochrome `--primary` in `.dark`; status carries meaning via fill/weight, not hue — `destructive` stays).
 
-- [ ] **Step 2: Visually confirm dev server renders**
+- [x] **Step 2: Visually confirm dev server renders**
 
 ```bash
 npm run dev
@@ -1859,7 +1859,7 @@ npm run dev
 
 Open the app; the dark sidebar active item is now neutral. Stop the dev server.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/index.css
