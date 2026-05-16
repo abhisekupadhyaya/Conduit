@@ -1,6 +1,6 @@
 # Accepted Risks & Open Items
 
-Same discipline as the product's stress-test register: risks are **named and
+Same discipline as the product's pressure-test register: risks are **named and
 consciously accepted**, not silent.
 The infra trades *redundancy* for cost; the product's reliability promise is
 unaffected because durability lives in managed Postgres (AD3/AD5), not in the

@@ -6,9 +6,9 @@
 > resolves an [open question](entities.md#open-modelling-questions) it does so
 > *tentatively* and says so. Read as "something like this", never "this".
 
-Now traced against the **full** source corpus: `decisions.md` (D1–D44),
-`sitemap.md` (8 supervisor pages + guest/servicer surfaces), the 3 journeys,
-the 4 flows. The [decision-coverage matrix](#decision-coverage) at the bottom
+Now traced against the **full** source corpus: the product decisions (D-series),
+the per-portal page map (8 supervisor pages + guest/servicer surfaces), the per-actor journeys,
+the cross-portal flows. The [decision-coverage matrix](#decision-coverage) at the bottom
 shows where every D-number lands.
 
 Conventions: `pk` · `fk→X` · `?` nullable · `enum(...)` indicative ·
@@ -90,12 +90,12 @@ sla_preset                                  -- P1–P4 named presets (D14/D15)
 
 escalation_ladder
   id uuid pk · property_id fk
-  steps jsonb                                -- ordered; soft shape; duty-mgr own ladder open (flow 03)
+  steps jsonb                                -- ordered; soft shape; duty-mgr own ladder open (a cross-portal flow)
   duty_manager_account_id uuid fk→account    -- non-time-boxed floor (D21)
   max_auto_cycles int                        -- the D21 bound N
 
 kb_entry         id uuid pk · property_id fk · topic text · body text · active bool
-                 · updated_by fk→account · created_at/updated_at               -- D26, sitemap 3.6
+                 · updated_by fk→account · created_at/updated_at               -- D26
 ```
 
 ## SPINE (runtime core)
@@ -121,7 +121,7 @@ child_sub_request                            -- THE UNIT (D35) — routing/SLA/c
                         accepted, in_progress, done_pending_confirm, answered,
                         concierge_queue, closed, reopened, cancelled )          -- soft, big on purpose
   closure_state   enum( none, awaiting_guest_confirm, confirmed,
-                        disputed_reopened, lite_closed, cancelled )             -- D8/D37/D44; lite=flow 04
+                        disputed_reopened, lite_closed, cancelled )             -- D8/D37/D44; lite=a cross-portal flow
   revised_eta     timestamptz ?                        -- set on stall, shown to guest (D22)
   sla_preset_id   uuid ? fk→sla_preset                 -- snapshot of preset in force
   cancelled_reason text ?
@@ -154,13 +154,13 @@ work_order                                   -- dispatch children AND human-conc
   accepted_at / completed_at timestamptz ?
   created_at / updated_at timestamptz
 
-no_dispatch_resolution                       -- flow 04; TENTATIVE Q7: separate vs fields on child
+no_dispatch_resolution                       -- a cross-portal flow; TENTATIVE Q7: separate vs fields on child
   id uuid pk · child_id fk→child_sub_request
   mode            enum(grounded_answer, human_deferral)         -- D25/D26
   answer_text     text ?
   grounded_on     jsonb                       -- {reservation:bool, kb_entry_ids:[...]} provenance (D26)
   deferred_work_order_id uuid ? fk→work_order -- human_deferral ⇒ concierge queue (D25)
-  closure_lite_helpful   bool ?               -- "did this help?" (flow 04 / D8-lite)
+  closure_lite_helpful   bool ?               -- "did this help?" (a cross-portal flow / D8-lite)
   created_at timestamptz
   -- answer↔action seam: a follow-up that mutates reservation is a NEW request → flag path (D24)
 
@@ -218,10 +218,10 @@ event                                        -- APPEND-ONLY spine (no update/del
 
 ```
 guest_status_card   ← events: state + assigned servicer display_name (D17) + revised_eta (D22), per child
-awareness_stream    ← events: incoming · task delegation · servicer recent work · glitches (D2/D14; sitemap 3.2)
-decision_queue      ← escalation WHERE state=open + supervisor_sla timer + auto-proceed indicator (D9; sitemap 3.3)
+awareness_stream    ← events: incoming · task delegation · servicer recent work · glitches (D2/D14)
+decision_queue      ← escalation WHERE state=open + supervisor_sla timer + auto-proceed indicator (D9)
 analytics           ← events: time-to-ack · SLA adherence by issue_code · dispute rate ·
-                       recurring-fault (glitch × issue_code) · auto-route % (D1/D28; sitemap 3.8)
+                       recurring-fault (glitch × issue_code) · auto-route % (D1/D28)
 ambient_context     ← active stay → {guest, room, section}; relocation mutates it (D3a/D20/D29) — NOT a table
 ```
 
@@ -253,7 +253,7 @@ work_order 1─* cross_dept_notification
 - **Priority-integrity invariant:** `child.priority_tier` is derived *only*
   from `issue_code → sla_preset`, **never** from guest-asserted urgency. This
   is what makes the spine immune to priority-inflation / prompt-injection
-  (stress-test header; D5). Treat as a hard rule, not a column default.
+  (the pressure-test; D5). Treat as a hard rule, not a column default.
 
 **Soft** (expect to move in build):
 - Every `enum(...)` (several → lookup/CONFIG tables); the `state` mega-enums
@@ -267,7 +267,7 @@ work_order 1─* cross_dept_notification
 
 ## Decision coverage
 
-Every D1–D44 mapped to where it lands in the model (or why it doesn't).
+Every decision mapped to where it lands in the model (or why it doesn't).
 
 | D | Where it lands |
 |---|---|
@@ -322,11 +322,11 @@ absent.
 
 **Underspecified in the source (flagged, not invented):**
 
-- **Room Service / IRD workflow** — D4 + domain-reference §3/§6 say it is *not*
+- **Room Service / IRD workflow** — D4 + the verified hotel-ops research§6 say it is *not*
   a simple dispatch (kitchen ticket → tray → course timing). The decisions
   never resolve its model; here it is a generic `work_order`. Real gap to
   resolve with the product owner before build, not guessed.
-- **Credit/point work-balancing** — domain-reference §2 (checkout ≈1,
+- **Credit/point work-balancing** — the verified hotel-ops research (checkout ≈1,
   stayover ≈0.5, suite ≈2; Room Attendant Sheet). D14 *explicitly defers*
   this; `staff_profile.availability` is the minimal D39 form only. A future
   routing-detail phase, recorded so it isn't silently lost.

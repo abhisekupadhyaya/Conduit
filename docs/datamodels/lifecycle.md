@@ -59,7 +59,7 @@ department's done-state unblocks/notifies another (maintenance clears a room →
 housekeeping + front desk, D14). This is part of the lifecycle, not a
 side-effect.
 
-## NoDispatchResolution (the second fulfilment mode — flow 04)
+## NoDispatchResolution (the second fulfilment mode — a cross-portal flow)
 
 ```
 TRIAGE no_dispatch ─┬─ groundable (reservation + KB) ─► GROUNDED_ANSWER ─► closure-lite "did this help?"

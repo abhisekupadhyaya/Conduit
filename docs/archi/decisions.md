@@ -121,7 +121,7 @@ provisioned identities map awkwardly).
 One environment for v1; Terraform modules parameterised so adding
 dev/staging/prod later is a variable flip, not a rewrite.
 
-**Why:** PRD scopes a single property; multi-env redundancy is not warranted
+**Why:** the product spec scopes a single property; multi-env redundancy is not warranted
 yet but should not require restructuring later.
 
 ### AD10 — Dropped from the reference template
@@ -130,7 +130,7 @@ No multi-tenancy (`{tenant_slug}` prefix, tenant models, `super_admin`
 portal), no RBAC engine (`core/rbac.py`). Conduit is one property, three fixed
 roles via simple dependency gates.
 
-**Why:** PRD puts RBAC explicitly out of scope; single property removes the
+**Why:** the product spec puts RBAC explicitly out of scope; single property removes the
 multi-tenant need. Net simplification over the reference.
 
 ### AD11 — LLM: OpenAI GPT-5.4-mini, external, bulkheaded

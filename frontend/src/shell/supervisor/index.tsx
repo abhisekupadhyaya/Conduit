@@ -1,8 +1,24 @@
-// Awareness Stream — watch, no action (D2). Scaffolding placeholder.
+import { useDecisionQueue } from "@/shell/supervisor/hooks/use-supervisor"
+
+// Awareness Stream — watch, no action (D2). The decision-queue count is a
+// required, available API and is wired through TanStack Query (polled, AD7).
+// The per-panel event-stream feed is a later endpoint, still a placeholder.
 export function SupervisorHome() {
+  const decisions = useDecisionQueue()
+  const pending = decisions.data?.items.length
+
   return (
     <div className="space-y-2">
-      <h1 className="text-xl font-semibold">Awareness Stream</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-xl font-semibold">Awareness Stream</h1>
+        <span className="text-muted-foreground text-xs">
+          {decisions.isLoading
+            ? "decisions…"
+            : decisions.isError
+              ? "decisions: unavailable"
+              : `${pending ?? 0} pending decision(s)`}
+        </span>
+      </div>
       <p className="text-muted-foreground text-sm">
         Live oversight of all requests, tasks, and glitches. No action here —
         the decision queue is where the supervisor acts (D2/D9).

@@ -1,14 +1,14 @@
 # Conduit — Data Models
 
 The conceptual/logical model. Traces to the product's data-movement spec
-(§A/B/C) and decisions (D-series). It is the technical design the PRD §12
+(§A/B/C) and decisions (D-series). It is the technical design the product spec (deferred items)
 names as the build blocker.
 
 | | |
 |---|---|
 | **Status** | First draft (2026-05-16) — **expected to evolve during build** |
 | **Level** | Conceptual/logical. **Not** physical schema. |
-| **Source of truth** | Product `decisions.md` (D1–D44) for *what*; this for *shape*. |
+| **Source of truth** | The product decisions (D-series) are the *what*; this doc is the *shape*. |
 
 ## Files
 
@@ -42,7 +42,7 @@ Evolution principles we are designing toward (so change stays cheap):
 
 1. **The append-only event log decouples consumers.** Awareness stream and
    analytics read events, not core tables — new consumers/event types are
-   additive (D1/D28, dataflow §C/D).
+   additive (D1/D28, the data-movement spec).
 2. **The child sub-request is the unit** of routing, SLA, closure — never the
    raw message (D35). Everything hangs off the child.
 3. **Modify = cancel + recreate**, never in-place mutation (D38) — history is

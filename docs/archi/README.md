@@ -1,7 +1,7 @@
 # Conduit — Architecture
 
 How Conduit is built and run. Product scope/requirements live separately in the
-product PRD + decisions log (D1–D44); **this folder is the technical
+the product spec + decisions log (D-series); **this folder is the technical
 counterpart** and introduces no product decisions — only how to realise them.
 
 | | |

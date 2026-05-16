@@ -14,35 +14,66 @@ layer that decided *who* does it and *when* is what Conduit replaces.
 
 ## Status
 
-**Planning / design.** No application code yet. The architecture and the data
-model are drafted and converged; the data model is deliberately marked
-*subject to change* until build hardens it.
+**Scaffolding complete; behaviour not yet implemented.** The structure for
+both apps is in place and verified to build/run; endpoints and domain logic
+are stubs (`NotImplementedError`) and ORM models are intentionally empty until
+the data model is hardened (it is deliberately marked *subject to change*).
 
 | Area | State |
 |---|---|
-| Product scope & decisions | Defined (D-series), the source of truth |
+| Product scope & decisions | Defined (the source of truth) |
 | Infrastructure architecture | Converged — see [docs/archi/](docs/archi/) |
 | Data model | First draft, evolvable — see [docs/datamodels/](docs/datamodels/) |
-| Backend / frontend code | Not started |
+| Frontend | Scaffolded — builds clean (Vite/React/TS/Tailwind/shadcn) |
+| Backend | Scaffolded — composes & smoke-tests (FastAPI, engine in-process) |
+| Feature behaviour | Not implemented (stubs) |
 
-## Shape (planned)
-
-Single FastAPI backend (the lifecycle engine runs in-process) in a container
-on ECS/EC2, fronted by Caddy for API TLS; a single React SPA on AWS Amplify;
-durable state and timers in managed Postgres (RDS). One environment,
-Terraform-defined. Detail and rationale in [docs/archi/](docs/archi/).
-
-Planned repository layout (when code begins):
+## Repository layout
 
 ```
-backend/    FastAPI: per-portal slices (guest/servicer/supervisor/public) + in-process engine
-frontend/   React SPA: one shell per portal
-dev-ops/    terraform/ + scripts/  (AWS)
-docs/       architecture + data models  ← currently the only populated tree
+backend/    FastAPI — 4 portal slices (guest/servicer/supervisor/public)
+            + shared/ (db · models · events · domain · engine · integrations);
+            the lifecycle engine runs in-process (single deployable)
+frontend/   One React SPA — shared shell, role-routed per portal;
+            all API via TanStack Query (auth is the only direct exception)
+docs/       architecture (archi/) + data models (datamodels/)
+dev-ops/    Terraform + scripts (AWS) — planned, not yet created
 ```
 
-The full intended structure is in
+Full intended structure and rationale:
 [docs/archi/code-structure.md](docs/archi/code-structure.md).
+
+## Running locally
+
+Local dev expects a Postgres and a MinIO (the RDS / S3 alternatives) reachable
+on the Docker network by service name (`postgres:5432`, `minio:9000`).
+
+### Backend
+
+```bash
+cd backend
+.venv/bin/uvicorn apps.api_main:app --reload --port 8000
+# (.venv already created; otherwise: python3.12 -m venv .venv
+#  && .venv/bin/pip install -e ".[dev]")
+.venv/bin/pytest -q                       # tests
+```
+
+Config is env-driven (`CONDUIT_*`); copy `backend/.env.example` → `backend/.env`
+and adjust. The API is served under `/api` with CORS enabled for the SPA
+origin (a conscious divergence from the Amplify same-origin proxy — see
+[docs/archi/decisions.md](docs/archi/decisions.md) AD6).
+
+### Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev        # dev server (Vite, port 5173)
+npm run build      # typecheck + production build
+```
+
+`VITE_API_BASE` (in `frontend/.env`, default `http://localhost:8000/api`)
+points the SPA at the backend.
 
 ## Documentation
 

@@ -101,7 +101,7 @@ from the issue code's SLA preset and **independent of the triage outcome**
 `is_problem_report` (from the code's intent kind → drives Glitch, D43);
 `revised_eta` set on a stall and shown to the guest (D22); SLA preset in
 force; lifecycle state (see [lifecycle.md](lifecycle.md)); closure state incl.
-closure-lite for no-dispatch (D8/flow 04); cancel/modify lineage —
+closure-lite for no-dispatch (D8/a cross-portal flow); cancel/modify lineage —
 `predecessor` link, since modify = cancel + recreate (D38).
 *Provisional: triage detail (slot completeness, deterministic-risk evaluation,
 LLM-raised risk, clarify budget used) — embedded vs a TriageResult entity left
@@ -119,7 +119,7 @@ notes (notes-only v1 — D16/D28). Grounded no-dispatch children have *no*
 WorkOrder — they resolve via NoDispatchResolution.
 
 ### NoDispatchResolution `SPINE`
-The no-dispatch outcome (flow 04). **Carries:** the child; mode ∈
+The no-dispatch outcome (a cross-portal flow). **Carries:** the child; mode ∈
 {grounded_answer, human_deferral} (D25); answer text; **grounding provenance**
 — which reservation fields / KB entries the answer was built from, for
 anti-hallucination and audit (D26); closure-lite "did this help?" signal (D8
@@ -163,7 +163,7 @@ glitches.
 The spine of observability. **Carries:** producer (portal/actor/system);
 subject (child / work order / escalation / glitch / stay); type; payload;
 at. Every state transition appends one. Awareness stream and analytics are
-**read models over this**, never over the core tables (D1/D28, dataflow
+**read models over this**, never over the core tables (D1/D28, the data-movement spec
 §C/D). New event types are additive — this is the primary evolution seam.
 
 ---
@@ -173,7 +173,7 @@ at. Every state transition appends one. Awareness stream and analytics are
 - **Notification** — v1 is in-portal, passive (FR-27/D42). Likely a read model
   over Event, not a stored entity. Left unmodelled on purpose.
 - **AnalyticsAggregate** — derived from Event (FR-30); not core-modelled.
-- **Audit trail / CSAT / degraded-mode** — product-level deferrals (PRD §12);
+- **Audit trail / CSAT / degraded-mode** — product-level deferrals (the product spec (deferred items));
   noted so their absence is conscious.
 - **Inventory loop, mass-events, RBAC, i18n** — out of v1 scope (D16/D27/D41);
   no entities here by design.

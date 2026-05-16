@@ -2,7 +2,10 @@
 
 A vertical-slice-per-portal layout, 4-layer internals
 (`api / services / dal / schemas`), with the AD10 simplifications applied (no
-multi-tenancy, no RBAC, one deployable, engine in-process).
+multi-tenancy, no RBAC, one deployable, engine in-process). The four portal
+slices (guest/servicer/supervisor/public) are the **only** places with
+`api/services/dal/schemas`; `engine/` lives under `shared/`; triage is shared
+**domain** logic, not a slice. *This reflects the realized scaffold.*
 
 ```
 Conduit/
@@ -12,73 +15,57 @@ Conduit/
 │   └── archi/                        # these documents
 │
 ├── backend/
-│   ├── pyproject.toml                # Poetry, ruff, mypy
+│   ├── pyproject.toml                # PEP 621, ruff, mypy
+│   ├── alembic.ini
+│   ├── .env.example                  # Postgres/MinIO/OpenAI/JWT (local-verified)
 │   ├── apps/
 │   │   └── api_main.py               # → conduit.main:app  (single deployable; engine in-process)
 │   ├── conduit/
-│   │   ├── main.py                   # FastAPI app: composes portal routers, starts engine task
+│   │   ├── main.py                   # FastAPI app: composes 4 slices, in-process engine lifespan
 │   │   ├── core/
-│   │   │   ├── deps.py               # DI: db session, current actor, role gates (NO rbac.py)
-│   │   │   ├── security.py           # app-managed JWT (guest/servicer/supervisor)
-│   │   │   ├── middleware.py
+│   │   │   ├── config.py             # typed settings (env CONDUIT_*)
+│   │   │   ├── deps.py               # DI: db session, current actor, role gates (NO rbac)
+│   │   │   ├── security.py           # app-managed JWT (AD8)
+│   │   │   ├── middleware.py         # CORS (AD6 divergence) + request id
 │   │   │   └── exceptions.py
-│   │   ├── guest/                    # portal slice — FR-24 (one conversation screen)
-│   │   │   ├── api/                  #   routers, one file/resource; __init__ composes
-│   │   │   ├── services/             #   use-cases, verb-named
-│   │   │   ├── dal/                  #   the ONLY place that touches the DB
-│   │   │   └── schemas/              #   Pydantic in/out
-│   │   ├── servicer/                 # same 4-layer shape
-│   │   │   └── api/ services/ dal/ schemas/
-│   │   ├── supervisor/               # the big one — FR-25 (8 pages)
-│   │   │   └── api/ services/ dal/ schemas/
-│   │   ├── public/                   # login, health
-│   │   │   └── api/ services/ dal/ schemas/
-│   │   ├── triage/                   # mechanical rulebook, decompose, issue-code classify
-│   │   │   └── services/ dal/ schemas/
-│   │   ├── engine/                   # lifecycle core (in-process background task)
-│   │   │   ├── runner.py             #   poll loop (FOR UPDATE SKIP LOCKED)
-│   │   │   ├── timers.py             #   dual timers, supervisor-SLA, bounded backstop
-│   │   │   ├── spine.py              #   stall detection → escalation → auto-proceed
-│   │   │   ├── sweeper.py            #   reconciliation watchdog
-│   │   │   └── services/ dal/
-│   │   └── shared/
-│   │       ├── db.py                 # async engine/session
-│   │       ├── models/               # SQLAlchemy domain models
-│   │       ├── events/               # append-only event log (awareness + analytics)
-│   │       └── integrations/
-│   │           └── openai.py         # client + circuit-breaker (AD11)
-│   ├── migrations/                   # Alembic
+│   │   ├── guest/                    # ── the ONLY slices ──
+│   │   │   └── api/ services/ dal/ schemas/   # FR-24 (conversation)
+│   │   ├── servicer/
+│   │   │   └── api/ services/ dal/ schemas/   # queue + task actions
+│   │   ├── supervisor/
+│   │   │   └── api/ services/ dal/ schemas/   # FR-25 (decisions, setup, …)
+│   │   ├── public/
+│   │   │   └── api/ services/ dal/ schemas/   # login + health
+│   │   └── shared/                   # cross-portal — NOT a slice
+│   │       ├── db.py                 # async engine/session + Base
+│   │       ├── models/               # ORM entities (empty until data model hardens)
+│   │       ├── events/               # append-only event log (the spine)
+│   │       ├── domain/               # triage · routing · lifecycle  (triage lives HERE)
+│   │       ├── engine/               # runner · timers · spine · sweeper  (in shared/, AD4/AD5)
+│   │       └── integrations/         # openai (AD11) · storage (S3/MinIO)
+│   ├── migrations/                   # Alembic (env.py: url+metadata from settings)
 │   │   └── versions/
-│   ├── seed/                         # default issue-code catalog, SLA presets
-│   └── tests/                        # mirrors the tree
-│       ├── api/{guest,servicer,supervisor,public}/
-│       ├── service/{guest,servicer,supervisor,triage}/
-│       ├── engine/                   # timers/spine/sweeper — heaviest tested
-│       ├── integration/
-│       ├── concurrency/              # SKIP LOCKED double-fire safety
-│       └── smoke/
+│   ├── seed/
+│   └── tests/                        # api · domain · engine · smoke
 │
 ├── frontend/
-│   ├── package.json
-│   ├── vite.config.ts
-│   ├── index.html
+│   ├── package.json  vite.config.ts  index.html
+│   ├── .env  .env.example            # VITE_API_BASE (absolute, env-driven)
 │   └── src/
-│       ├── main.tsx
-│       ├── App.tsx                   # role-routed to the right shell
-│       ├── auth/                     # AuthProvider, LoginPage, RequireAuth, hooks
-│       ├── lib/                      # api-client, query-client, role-routing, format
+│       ├── main.tsx                  # ThemeProvider → Router → Auth → Tooltip
+│       ├── App.tsx                   # role-routed; one shared shell per route
+│       ├── auth/                     # use-auth, auth-provider, require-auth, login-form/page
+│       ├── lib/                      # api-client, query-client (TanStack), role-routing, utils
+│       ├── public/                   # landing (auth-aware redirect)
+│       ├── hooks/                    # shared (use-mobile)
 │       ├── components/
-│       │   ├── ui/                   # design system
-│       │   └── …                     # shared cross-portal components
-│       ├── hooks/                    # shared hooks
-│       ├── public/                   # public pages
+│       │   ├── ui/                   # shadcn primitives
+│       │   ├── theme-provider.tsx    # light/dark/system
+│       │   └── layout/               # SHARED shell: app-shell, app-sidebar, nav-main, nav-user, app-brand
 │       └── shell/
-│           ├── guest/                # one conversation screen + login
-│           │   └── layout/ components/ hooks/
-│           ├── servicer/             # queue + task detail
-│           │   └── layout/ components/ hooks/
-│           └── supervisor/           # 8 pages: awareness, decision queue, setup, KB, …
-│               └── layout/ components/ hooks/
+│           ├── guest/                # nav.tsx (the only per-portal diff) + index.tsx + hooks/
+│           ├── servicer/             # nav.tsx + index.tsx + hooks/
+│           └── supervisor/           # nav.tsx + index.tsx + hooks/   (hooks/ = TanStack Query)
 │
 └── dev-ops/
     ├── terraform/                    # single env, parameterised for future envs (AD9)
@@ -99,11 +86,21 @@ Conduit/
 
 - **No** `super_admin`/multi-tenant slice, **no** `core/rbac.py`, **no**
   `{tenant_slug}` route prefix (AD10).
+- **No `triage/` slice.** Triage is shared *domain* logic
+  (`shared/domain/triage.py`), triggered from `guest/services/intake.py`.
+  `api/services/dal/schemas` exist **only** under the four portals.
+- **`engine/` lives under `shared/`** (`shared/engine/`), not at package root —
+  it is cross-portal runtime machinery alongside `db`, `models`, `events`.
 - **One** backend deployable — the engine is in-process, not a second
-  async-worker service (AD4).
-- `engine/` is a net-new package with no analogue in the usual template; it is
-  the riskiest surface and the most heavily tested (`tests/engine/`,
-  `tests/concurrency/`).
-- `dev-ops/{terraform,scripts}` + Amplify is the AWS deploy target.
-- Two independent deploy pipelines: frontend = Amplify git push; backend =
-  ECR → ECS rolling update.
+  async-worker service (AD4); it is the riskiest surface, most heavily tested.
+- **Frontend uses one shared shell** (`components/layout/`); the only
+  per-portal difference is `shell/<portal>/nav.tsx`.
+- **All frontend API access goes through TanStack Query** — `useQuery`
+  (live surfaces poll, per AD7) / `useMutation`, in `shell/<portal>/hooks/`,
+  over `lib/api-client`. The **only** exception is auth (login/logout), which
+  stays a direct call in `auth/auth-provider`.
+- Env-driven config both sides: backend `CONDUIT_*`, frontend `VITE_API_BASE`
+  (absolute base → backend owns CORS, the conscious AD6 divergence). Local dev
+  uses the docker-compose Postgres/MinIO as the RDS/S3 alternatives.
+- `dev-ops/{terraform,scripts}` + Amplify is the AWS deploy target. Two
+  independent pipelines: frontend = Amplify git push; backend = ECR → ECS.
