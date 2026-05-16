@@ -1800,7 +1800,7 @@ git commit -m "test: coverage gate on auth modules + code-structure note"
 
 **Files:** `frontend/package.json` (via CLI)
 
-- [ ] **Step 1: Install npm deps**
+- [x] **Step 1: Install npm deps**
 
 ```bash
 cd /workspace/Conduit-auth-slice/frontend
@@ -1808,7 +1808,7 @@ npm install
 npm install react-hook-form zod @hookform/resolvers sonner
 ```
 
-- [ ] **Step 2: Add shadcn components (radix-nova style, deterministic)**
+- [x] **Step 2: Add shadcn components (radix-nova style, deterministic)**
 
 ```bash
 npx shadcn@latest add card form table dialog alert-dialog sonner badge select alert tabs --yes
@@ -1816,7 +1816,7 @@ npx shadcn@latest add card form table dialog alert-dialog sonner badge select al
 
 Expected: files created under `src/components/ui/`. Use them as generated except where a later task specifies an edit.
 
-- [ ] **Step 3: Verify build still typechecks**
+- [x] **Step 3: Verify build still typechecks**
 
 ```bash
 npm run build
@@ -1824,7 +1824,7 @@ npm run build
 
 Expected: build succeeds.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add package.json package-lock.json src/components/ui components.json
