@@ -2844,7 +2844,7 @@ git log --oneline auth-slice-design..HEAD   # the slice commits
 git push -u origin feat/auth-slice
 ```
 
-- [x] **Step 3: Open the PR**
+- [ ] **Step 3: Open the PR**
 
 ```bash
 gh pr create --base main --head feat/auth-slice \
