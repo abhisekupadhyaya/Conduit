@@ -2776,12 +2776,12 @@ git commit -m "feat(settings): per-portal settings + team tab + nav/routes"
 
 **Files:** Modify `src/shell/supervisor/index.tsx`, `src/shell/guest/index.tsx`, `src/shell/servicer/index.tsx`, `src/main.tsx`
 
-- [ ] **Step 1: Mount the Toaster once**
+- [x] **Step 1: Mount the Toaster once**
 
 In `src/main.tsx`, add `import { Toaster } from "@/components/ui/sonner"` and
 render `<Toaster />` once inside the provider tree (sibling of `<App/>`).
 
-- [ ] **Step 2: Retrofit the three placeholder shells to `PageHeader`**
+- [x] **Step 2: Retrofit the three placeholder shells to `PageHeader`**
 
 In each of `src/shell/{supervisor/index,guest/index,servicer/index}.tsx`,
 replace the hand-rolled `<h1 className="text-xl font-semibold">…</h1>` with
@@ -2789,7 +2789,7 @@ replace the hand-rolled `<h1 className="text-xl font-semibold">…</h1>` with
 with `<EmptyState title="…" hint="…"/>`. Keep existing data hooks
 (`useDecisionQueue` etc.) intact.
 
-- [ ] **Step 3: Typecheck + commit**
+- [x] **Step 3: Typecheck + commit**
 
 ```bash
 npm run build

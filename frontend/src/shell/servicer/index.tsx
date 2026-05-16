@@ -1,4 +1,6 @@
 import { Button } from "@/components/ui/button"
+import { PageHeader } from "@/components/layout/page-header"
+import { EmptyState } from "@/components/common/empty-state"
 import {
   useTaskQueue,
   useAcceptWorkOrder,
@@ -15,11 +17,10 @@ export function ServicerQueue() {
 
   return (
     <div className="space-y-3">
-      <h1 className="text-xl font-semibold">Task Queue</h1>
-      <p className="text-muted-foreground text-sm">
-        Pushed (owned) and claimable (claim-fallback) tasks, each with an
-        accept-window and SLA countdown (D12/D23).
-      </p>
+      <PageHeader
+        title="Task Queue"
+        description="Pushed (owned) and claimable (claim-fallback) tasks, each with an accept-window and SLA countdown (D12/D23)."
+      />
 
       {queue.isLoading && (
         <p className="text-muted-foreground text-sm">Loading queue…</p>
@@ -30,9 +31,7 @@ export function ServicerQueue() {
         </p>
       )}
       {!queue.isLoading && !queue.isError && tasks.length === 0 && (
-        <div className="text-muted-foreground rounded-xl border border-dashed p-8 text-center text-sm">
-          No tasks right now.
-        </div>
+        <EmptyState title="No tasks right now." />
       )}
 
       <div className="space-y-2">

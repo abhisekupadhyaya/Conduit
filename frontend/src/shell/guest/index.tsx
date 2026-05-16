@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
+import { EmptyState } from "@/components/common/empty-state"
 import {
   useGuestThread,
   useSubmitRequest,
@@ -29,9 +30,10 @@ export function GuestConversation() {
           </p>
         )}
         {!thread.isLoading && !thread.isError && children.length === 0 && (
-          <p className="text-muted-foreground text-center text-sm">
-            Ask for anything — in plain words. Room and stay are already known.
-          </p>
+          <EmptyState
+            title="No requests yet"
+            hint="Ask for anything — in plain words. Room and stay are already known."
+          />
         )}
         {children.map((c) => (
           <div
