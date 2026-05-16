@@ -6,8 +6,7 @@ import {
 // (servicer/schemas/home.py): PUT /servicer/presence {presence}. Off-shift
 // the server gates with 409 (the real lock); the UI lock here is the
 // "lock taught as care" surface (spec §10) — disabled + a reassuring
-// caption, never a silent dead control. The mutation is wired by a later
-// task; this component only emits the chosen value.
+// caption, never a silent dead control.
 
 export type Presence = "working" | "on_break" | "off"
 
@@ -27,9 +26,10 @@ export function PresenceControl({
 }) {
   return (
     <div className="space-y-2">
+      {/* Recessed track + raised selected pill — a calm monochrome
+          segmented control, not three bordered buttons jammed together. */}
       <ToggleGroup
         type="single"
-        variant="outline"
         value={value}
         disabled={locked}
         onValueChange={(v) => {
@@ -37,13 +37,14 @@ export function PresenceControl({
           // presence always has a value (Working is the default, D39).
           if (v) onChange(v as Presence)
         }}
+        className="bg-muted/60 grid w-full grid-cols-3 gap-1 rounded-md border p-1"
       >
         {OPTIONS.map((o) => (
           <ToggleGroupItem
             key={o.value}
             value={o.value}
             aria-label={o.label}
-            className="flex-1"
+            className="text-muted-foreground hover:text-foreground h-8 rounded-[5px] border-0 bg-transparent text-sm font-normal data-[state=on]:bg-background data-[state=on]:font-medium data-[state=on]:text-foreground data-[state=on]:shadow-sm"
           >
             {o.label}
           </ToggleGroupItem>
