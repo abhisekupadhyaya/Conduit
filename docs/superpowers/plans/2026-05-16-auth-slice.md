@@ -1400,7 +1400,7 @@ git commit -m "feat(api): cookie-session login/logout/me + patch me"
 - Modify: `backend/conduit/supervisor/api/__init__.py`
 - Test: `backend/tests/api/test_accounts.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/api/test_accounts.py`:
 
@@ -1465,12 +1465,12 @@ async def test_supervisor_crud_no_delete(client, make_account, login):
         f"/api/supervisor/accounts/{new_id}")).status_code == 405
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/api/test_accounts.py -q`
 Expected: FAIL — routes missing (404/405 mismatches, import error).
 
-- [ ] **Step 3: Implement the accounts router**
+- [x] **Step 3: Implement the accounts router**
 
 Create `conduit/supervisor/api/accounts.py`:
 
@@ -1523,7 +1523,7 @@ async def update_account(account_id: uuid.UUID, body: AccountUpdateIn,
     return AccountOut.model_validate(a)
 ```
 
-- [ ] **Step 4: Wire the router**
+- [x] **Step 4: Wire the router**
 
 In `conduit/supervisor/api/__init__.py` add the import and include:
 
@@ -1533,12 +1533,12 @@ from conduit.supervisor.api.accounts import router as accounts_router
 router.include_router(accounts_router)
 ```
 
-- [ ] **Step 5: Run it, expect pass**
+- [x] **Step 5: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/api/test_accounts.py -q`
 Expected: PASS (2 passed).
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add conduit/supervisor/api/accounts.py conduit/supervisor/api/__init__.py tests/api/test_accounts.py
