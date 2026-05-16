@@ -74,7 +74,7 @@
 
 **Files:** none (git ops)
 
-- [ ] **Step 1: Commit the plan on the design branch**
+- [x] **Step 1: Commit the plan on the design branch**
 
 ```bash
 cd /workspace/Conduit
@@ -82,7 +82,7 @@ git add docs/superpowers/plans/2026-05-16-auth-slice.md
 git commit -m "docs: auth slice implementation plan"
 ```
 
-- [ ] **Step 2: Create the worktree on a fresh feature branch off the design branch**
+- [x] **Step 2: Create the worktree on a fresh feature branch off the design branch**
 
 ```bash
 cd /workspace/Conduit
@@ -91,7 +91,7 @@ git worktree add /workspace/Conduit-auth-slice -b feat/auth-slice auth-slice-des
 
 Expected: `Preparing worktree (new branch 'feat/auth-slice')`. All subsequent work happens in `/workspace/Conduit-auth-slice`.
 
-- [ ] **Step 3: Verify the worktree carries the spec + plan**
+- [x] **Step 3: Verify the worktree carries the spec + plan**
 
 ```bash
 ls /workspace/Conduit-auth-slice/docs/superpowers/specs/2026-05-16-auth-slice-design.md
@@ -104,13 +104,13 @@ Expected: both paths exist.
 
 **Files:** none (env ops)
 
-- [ ] **Step 1: Copy the existing venv into the worktree**
+- [x] **Step 1: Copy the existing venv into the worktree**
 
 ```bash
 cp -r /workspace/Conduit/backend/.venv /workspace/Conduit-auth-slice/backend/.venv
 ```
 
-- [ ] **Step 2: Re-link the editable package to the worktree path**
+- [x] **Step 2: Re-link the editable package to the worktree path**
 
 ```bash
 cd /workspace/Conduit-auth-slice/backend
@@ -119,7 +119,7 @@ cd /workspace/Conduit-auth-slice/backend
 
 Expected: deps already satisfied; pip only re-links `conduit` editable to the worktree. No network failures should block (all deps present in the copied venv).
 
-- [ ] **Step 3: Sanity-check the interpreter and imports**
+- [x] **Step 3: Sanity-check the interpreter and imports**
 
 ```bash
 .venv/bin/python -c "import conduit, fastapi, sqlalchemy, passlib.hash, jwt; print('ok', conduit.__file__)"
@@ -127,7 +127,7 @@ Expected: deps already satisfied; pip only re-links `conduit` editable to the wo
 
 Expected: `ok /workspace/Conduit-auth-slice/backend/conduit/__init__.py`
 
-- [ ] **Step 4: Baseline test run (scaffold smoke must pass)**
+- [x] **Step 4: Baseline test run (scaffold smoke must pass)**
 
 ```bash
 .venv/bin/python -m pytest -q
@@ -139,7 +139,7 @@ Expected: the existing smoke test passes (1 passed). This proves the copied env 
 
 **Files:** none
 
-- [ ] **Step 1: Probe the Postgres admin connection**
+- [x] **Step 1: Probe the Postgres admin connection**
 
 ```bash
 cd /workspace/Conduit-auth-slice/backend
@@ -172,7 +172,7 @@ Expected: `postgres reachable`. **If it prints `POSTGRES UNREACHABLE`, stop and 
 - Modify: `backend/conduit/core/config.py`
 - Modify: `backend/.env.example`
 
-- [ ] **Step 1: Add settings fields**
+- [x] **Step 1: Add settings fields**
 
 In `conduit/core/config.py`, inside `class Settings`, after `jwt_ttl_minutes`:
 
@@ -190,7 +190,7 @@ In `conduit/core/config.py`, inside `class Settings`, after `jwt_ttl_minutes`:
     test_database_name: str = "conduit_test"
 ```
 
-- [ ] **Step 2: Append to `.env.example`**
+- [x] **Step 2: Append to `.env.example`**
 
 Append:
 
@@ -209,12 +209,12 @@ CONDUIT_TEST_ADMIN_URL=postgresql+asyncpg://conduit:conduit@localhost:5432/postg
 CONDUIT_TEST_DATABASE_NAME=conduit_test
 ```
 
-- [ ] **Step 3: Verify settings load**
+- [x] **Step 3: Verify settings load**
 
 Run: `.venv/bin/python -c "from conduit.core.config import get_settings as g; print(g().cookie_name, g().test_database_name)"`
 Expected: `conduit_session conduit_test`
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add conduit/core/config.py .env.example
