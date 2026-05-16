@@ -14,17 +14,34 @@ from __future__ import annotations
 
 from conduit.shared.db import Base
 from conduit.shared.models.account import Account
+from conduit.shared.models.property import Property
+from conduit.shared.models.room import Room
+from conduit.shared.models.section import Section
+from conduit.shared.models.stay import Stay
+from conduit.shared.models.issue_code import IssueCode
+from conduit.shared.models.kb_entry import KBEntry
+from conduit.shared.models.request import Request
+from conduit.shared.models.child_sub_request import ChildSubRequest
+from conduit.shared.models.no_dispatch_resolution import NoDispatchResolution
+from conduit.shared.models.provenance import NDProvenanceKB, NDProvenanceField
 from conduit.shared.models.event import (
     Event,
     EventGuestRelocated,
     EventStayCreated,
     EventStayEnded,
+    EventRequestCreated,
+    EventChildTriaged,
+    EventChildAnswered,
+    EventChildDeferred,
+    EventChildParked,
+    EventChildClosed,
+    EventChildReopened,
 )
-from conduit.shared.models.property import Property
-from conduit.shared.models.room import Room
-from conduit.shared.models.section import Section
-from conduit.shared.models.stay import Stay
 
 __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
+           "IssueCode", "KBEntry", "Request", "ChildSubRequest",
+           "NoDispatchResolution", "NDProvenanceKB", "NDProvenanceField",
            "Event", "EventStayCreated", "EventStayEnded",
-           "EventGuestRelocated"]
+           "EventGuestRelocated", "EventRequestCreated", "EventChildTriaged",
+           "EventChildAnswered", "EventChildDeferred", "EventChildParked",
+           "EventChildClosed", "EventChildReopened"]

@@ -28,15 +28,15 @@ export const supervisorNav: NavConfig = {
       icon: <Settings2Icon />,
       items: [
         { title: "Sections", url: "/supervisor/setup/sections" },
-        { title: "Rosters", url: "/supervisor/setup/rosters" },
         { title: "Issue Codes", url: "/supervisor/setup/issue-codes" },
+        { title: "Rosters", url: "/supervisor/setup/rosters" },
         { title: "SLA Presets", url: "/supervisor/setup/sla" },
         { title: "Escalation Ladder", url: "/supervisor/setup/escalation" },
       ],
     },
     {
       title: "Knowledge Base",
-      url: "/supervisor/kb",
+      url: "/supervisor/knowledge-base",
       icon: <BookOpenIcon />,
     },
     {

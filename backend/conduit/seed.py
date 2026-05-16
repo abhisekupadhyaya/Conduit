@@ -13,7 +13,9 @@ from conduit.shared.db import SessionLocal
 from conduit.supervisor.services import accounts as svc
 
 
+from sqlalchemy import func as _func
 from sqlalchemy import select as _select
+from conduit.shared.models import IssueCode as _IssueCode
 from conduit.shared.models.property import Property as _Property
 
 
@@ -25,6 +27,37 @@ async def ensure_property(s, name: str = "Conduit Property") -> _Property:
     s.add(p)
     await s.flush()
     return p
+
+
+_DEFAULT_ISSUE_CODES = [
+    dict(code="INFO_GENERAL", label="General info", department="concierge",
+         fulfilment_mode="no_dispatch", routing_model="none",
+         intent_kind="service", is_reservation_mutation=False),
+    dict(code="INFO_DINING", label="Dining & hours", department="concierge",
+         fulfilment_mode="no_dispatch", routing_model="none",
+         intent_kind="service", is_reservation_mutation=False),
+    dict(code="INFO_AMENITIES", label="Amenities & wifi",
+         department="concierge", fulfilment_mode="no_dispatch",
+         routing_model="none", intent_kind="service",
+         is_reservation_mutation=False),
+    dict(code="RES_MUTATION", label="Reservation change",
+         department="front_office", fulfilment_mode="no_dispatch",
+         routing_model="none", intent_kind="service",
+         is_reservation_mutation=True),
+    dict(code="HK_REQUEST", label="Housekeeping request",
+         department="housekeeping", fulfilment_mode="dispatch",
+         routing_model="section_pooled", intent_kind="service",
+         is_reservation_mutation=False),
+]
+
+
+async def ensure_issue_codes(db) -> None:
+    for spec in _DEFAULT_ISSUE_CODES:
+        exists = (await db.execute(_select(_IssueCode).where(
+            _func.lower(_IssueCode.code) == spec["code"].lower()))
+        ).scalars().first()
+        if exists is None:
+            db.add(_IssueCode(**spec))     # insert-missing only; never update
 
 
 async def run(s: AsyncSession, *, username: str, password: str) -> None:
@@ -44,6 +77,7 @@ async def _main() -> None:
     st = get_settings()
     async with SessionLocal() as s:
         await ensure_property(s)
+        await ensure_issue_codes(s)
         await run(s, username=st.seed_supervisor_username,
                   password=st.seed_supervisor_password)
         await s.commit()
