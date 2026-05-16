@@ -11,6 +11,7 @@ DAL is add-only; this service flushes; the API handler commits (Task 12).
 """
 from __future__ import annotations
 
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.core.exceptions import ConflictError, NotFoundError
@@ -20,10 +21,119 @@ from conduit.guest.dal import requests as rdal
 from conduit.guest.dal import resolutions as resdal
 from conduit.guest.services import nodispatch
 from conduit.guest.services import smalltalk
-from conduit.shared.domain import lifecycle, triage
+from conduit.shared.domain import lifecycle, routing, triage
 from conduit.shared.events import writer
 from conduit.shared.integrations.openai import LLMUnavailable
+from conduit.shared.models import (IssueCode, Request, Room, Roster,
+                                   RosterAssignment, Section, SLAPreset,
+                                   StaffProfile, StaffSkill, Stay)
 from conduit.supervisor.dal import issue_codes as icdal
+
+# D12 section-pooled vs D18 skill-matched — derived from the child's
+# ``issue_code.routing_model`` column, NEVER hardcoded (mirrors the spine's
+# ``_ROUTING_MODEL_BY_CODE``; routing RULES stay in C1 ``routing.select``).
+_ROUTING_MODEL_BY_CODE = {
+    "section_pooled": routing.RoutingModel.SECTION_POOLED,  # D12
+    "skill_matched": routing.RoutingModel.SKILL_MATCHED,    # D18
+}
+
+
+async def _route_dispatch_child(s: AsyncSession, child, ic, actor_id) -> dict:
+    """Triage AUTO + ``fulfilment_mode == 'dispatch'`` ⇒ the C4 routing-effect
+    (Spec §9.2). The routing MODEL is derived from
+    ``issue_code.routing_model``; candidates are an engine-local read off the
+    caller's session (the established ``shared/engine/spine`` idiom — services
+    may read); C1 ``routing.select`` OWNS the allocation rule; the resolved
+    pure ``Selection`` is passed into C4 ``lifecycle.transition(child,
+    'routing', ...)`` which creates the WorkOrder + arms accept_window +
+    fulfilment_sla (NOT reimplemented here). Then the WorkOrder + child are
+    advanced to ``pushed`` / ``broadcast`` through the SAME C4 writer path."""
+    # child → Request → Stay → Room → Section (the owning section + property).
+    sec_row = (await s.execute(
+        sa.select(Section.id, Section.property_id)
+        .select_from(Request)
+        .join(Stay, Stay.id == Request.stay_id)
+        .join(Room, Room.id == Stay.room_id)
+        .join(Section, Section.id == Room.section_id)
+        .where(Request.id == child.request_id)
+    )).first()
+    section_id = sec_row[0] if sec_row else None
+    property_id = sec_row[1] if sec_row else None
+
+    model = _ROUTING_MODEL_BY_CODE.get(
+        ic.routing_model, routing.RoutingModel.SKILL_MATCHED)
+
+    # priority_tier via issue_code.sla_preset_id → SLAPreset.tier (D23).
+    priority_tier = "P3"
+    if ic.sla_preset_id is not None:
+        tier = (await s.execute(
+            sa.select(SLAPreset.tier).where(SLAPreset.id == ic.sla_preset_id)
+        )).scalar_one_or_none()
+        if tier:
+            priority_tier = tier
+
+    # Engine-local candidate read (same shape spine._stall_candidates builds,
+    # enriched with section-ownership / in-zone / skills so the PURE C1
+    # select can decide D12/D18). Routing rules are NOT re-implemented.
+    rosters = {
+        r.id: r for r in (await s.execute(
+            sa.select(Roster).where(Roster.property_id == property_id)
+        )).scalars().all()
+    }
+    owner_ids: set = set()
+    assigns: dict = {}
+    if rosters:
+        for a in (await s.execute(
+            sa.select(RosterAssignment)
+            .where(RosterAssignment.roster_id.in_(list(rosters)))
+        )).scalars().all():
+            a.roster = rosters.get(a.roster_id)
+            assigns.setdefault(a.account_id, []).append(a)
+            if (a.assignment == "owner" and a.status == "active"
+                    and a.section_id == section_id):
+                owner_ids.add(a.account_id)
+    skills: dict = {}
+    if assigns:
+        for sk in (await s.execute(
+            sa.select(StaffSkill)
+            .where(StaffSkill.account_id.in_(list(assigns)))
+        )).scalars().all():
+            skills.setdefault(sk.account_id, []).append(sk.skill)
+    candidates = []
+    for prof in (await s.execute(
+        sa.select(StaffProfile)
+        .where(StaffProfile.account_id.in_(list(assigns) or [None]))
+    )).scalars().all():
+        candidates.append(routing.Candidate(
+            account_id=prof.account_id, profile=prof,
+            assignments=assigns.get(prof.account_id, []),
+            skills=tuple(skills.get(prof.account_id, ())),
+            is_section_owner=prof.account_id in owner_ids,
+            in_zone=True))
+
+    now = (await s.execute(sa.select(sa.func.now()))).scalar_one()
+    sel = routing.select(model=model, candidates=candidates, now=now,
+                         section_id=section_id)
+
+    # C4 owns WorkOrder creation + timer arming — pass the pure Selection in.
+    await lifecycle.transition(
+        s, child, "routing", actor_account_id=actor_id,
+        selection=sel, kind="dispatch", routing_model=ic.routing_model,
+        priority_tier=priority_tier)
+    await s.flush()
+
+    # Advance the freshly-created WorkOrder to pushed / broadcast through the
+    # SAME C4 writer path (assigned ⇒ pushed to the owner; else claim-fallback
+    # broadcast — D12/D18). The dispatch leg's state lives on the WorkOrder;
+    # the child stays at ``routing`` (C4 models no child pushed/broadcast
+    # event — the WorkOrder carries that hop).
+    from conduit.shared.models import WorkOrder
+    wo = (await s.execute(
+        sa.select(WorkOrder).where(WorkOrder.child_id == child.id)
+    )).scalar_one()
+    nxt = "pushed" if sel.assigned_id is not None else "broadcast"
+    await lifecycle.transition(s, wo, nxt, actor_account_id=actor_id)
+    return {"terminal": "dispatched", "state": wo.state}
 
 
 async def submit_request(s: AsyncSession, actor, text: str) -> dict:
@@ -65,6 +175,12 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
             term = await smalltalk.resolve(s, child, actor.id)
         elif t.outcome.value == "no_dispatch":
             term = await nodispatch.resolve(s, child, ambient, actor.id)
+        elif (t.outcome.value == "auto" and ic is not None
+              and ic.fulfilment_mode == "dispatch"):
+            # AUTO + dispatch ⇒ branch to the C4 routing-effect (§9.2). All
+            # other outcomes (clarify/flag/uncategorized/no-code AUTO) keep
+            # the byte-identical park behaviour below — back-compat.
+            term = await _route_dispatch_child(s, child, ic, actor.id)
         else:
             await writer.emit_child(s, "child_parked", child.id, actor.id)
             term = {"terminal": "logged"}
