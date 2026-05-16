@@ -459,17 +459,81 @@ the target so it is applied **once, coordinated, when auth's layer merges**:
 
 ## 10. Test bench
 
-Extends the auth slice's harness (throwaway `conduit_test` DB built via
-`alembic upgrade head` — now including the second migration — model-delete
-teardown, leak sentinel, the 5 structural guards, coverage gate). Precondition
-data built through the **real services** (`create_account` from auth, then
-`create_stay`), never raw inserts.
+**Goal & honest boundary.** "Pass ⇒ no manual re-check" is only honest if a
+regression *cannot* ship without turning the suite red. The bench is built so
+tests are not just examples but **structural guards failing on whole classes
+of change** (a new field, a renamed route, a dropped authz check, an untested
+branch). The guarantee holds for every documented behaviour **and** these
+guarded classes; it is **not** a guarantee against a requirement never
+specified. Stated plainly so the comfort is real, not false.
 
-**Layered:** second migration round-trips on top of auth's first; the partial
-unique index exists and rejects a second active stay at the DB level; DAL
-(case-insensitive label lookup, FK integrity, filters); services (every
-branch incl. all guards); API (full stack, role × endpoint matrix —
-auto-covers the new supervisor routes via the inherited parametric guard).
+Extends the auth slice's harness (throwaway `conduit_test` DB built via
+`alembic upgrade head` — now including the second migration — leak sentinel,
+the structural guards, coverage gate). Precondition data built through the
+**real services** (`create_account` from auth, then `create_stay`), never raw
+inserts.
+
+**Layered (each layer catches what the one above can't):**
+- **Migration** — 2nd migration `down_revision` = auth's; `upgrade`→
+  `downgrade` round-trips clean; the **partial unique index physically
+  rejects a 2nd active stay** (raw insert, not via service); every
+  CHECK/FK actually rejects (`status`, `event.type`, bad FKs).
+- **DAL** (`supervisor/dal/*` + `public/dal/bindings.py`) —
+  case-insensitive label lookup; filters; FK integrity;
+  `get_active_binding_for_guest` returns the correct trio / `None`;
+  event-insert primitives.
+- **Services** — **every branch of every guard** (`create_stay`,
+  `relocate_stay`, `checkout_stay`, `update_stay` no-event, sections/rooms
+  branches, `resolve_ambient` non-guest/no-active/active).
+- **API** — full stack via `httpx.AsyncClient(ASGITransport)`, real
+  cookie-auth chains: every endpoint's happy path **and every error
+  status**.
+
+**Structural guards (inherited from auth, extended here — the regression
+net):**
+1. **Contract snapshot** — committed `{path,methods,auth,status}` from the
+   live OpenAPI schema; *any* drift fails until the snapshot is
+   **intentionally** updated. **Owns asserting the extended `/auth/me`
+   ambient shape** — if the auth merge ever drops/renames an ambient field,
+   *this* slice's suite goes red at the seam (the deliberate §6
+   coordination artifact).
+2. **Response-schema parsing** — every response parsed into an
+   `extra="forbid"` model → catches leaked *and* dropped fields on
+   `SectionOut`/`RoomOut`/`StayOut` and the `/auth/me` ambient fields.
+3. **Parametric role × endpoint matrix** — authz expectations *generated*
+   over all `/supervisor/*` routes × all roles; a new route is
+   **auto-covered** (guest/servicer→403, no-cookie→401,
+   supervisor/duty_manager→allowed). An unguarded endpoint cannot ship.
+4. **Auth-coverage meta-test** — every route not in the public allowlist
+   returns 401 without a cookie.
+5. **Coverage gate** — `--cov fail-under`, **branch coverage, scoped to the
+   binding modules**: 100% on `dal`+`services`, high on `api`. An untested
+   branch fails the suite.
+6. **Leak sentinel** — between modules assert binding tables at seeded
+   baseline (`Property=1`, sections/rooms/stays/events=0). A missed
+   teardown fails **loudly**, never silently passes.
+
+**End-to-end journey sentinel (the test you actually trust):** one scripted
+test that *is* this slice's journey — seed supervisor → create section+room
+→ create guest (auth service) → check-in → guest `GET /auth/me` shows
+ambient → **relocate** → same guest's next `/auth/me` shows new
+room+section (**no re-login**) → reassign the room's section → ambient
+section follows (**no `Stay` write**) → checkout → `/auth/me` ambient
+`null` → re-check-in allowed. Breaks loudly if any pipeline stage
+regresses.
+
+**Isolation / zero-residue (no residue even on failure).** Tests are
+written **mechanism-agnostic** — a test must never depend on the isolation
+strategy. The harness's isolation lives in the auth-owned `conftest.py`
+(in-flight); the **target recorded here is transactional savepoint-rollback**
+(`join_transaction_mode="create_savepoint"`, the `AsyncClient` sharing the
+bound connection, rollback in the fixture finalizer — true rollback even on
+a hard crash, faster, no FK-ordered delete to maintain). It is applied
+**once, coordinated, at the auth merge** (same checkpoint as §6 / contract
+snapshot) — not bolted on in parallel (two isolation strategies in one
+conftest ⇒ flakiness). Until then auth's model-delete-in-`finally` + leak
+sentinel already delivers zero-residue-on-failure; this slice's tests pass
+under either.
 
 **Named invariants (one test each):**
 1. Ambient follows a relocation **atomically** — `relocate` then
@@ -532,3 +596,7 @@ green.
   merge (same checkpoint as the §6 / contract-snapshot seam). Deliberately
   *not* edited by this slice to avoid parallel token-fighting with the
   in-flight auth uniformity layer.
+- **Test-isolation upgrade to savepoint-rollback** — target recorded in
+  §10; applied once to the auth-owned `conftest.py` at the auth merge.
+  Tests here are mechanism-agnostic so the decision needs no change to this
+  slice. Same merge checkpoint as the design-system + §6 seams.
