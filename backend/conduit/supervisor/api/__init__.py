@@ -8,6 +8,7 @@ from conduit.supervisor.api.kb import router as kb_router
 from conduit.supervisor.api.override import router as override_router
 from conduit.supervisor.api.rosters import router as rosters_router
 from conduit.supervisor.api.setup import router as setup_router
+from conduit.supervisor.api.setup import setup_router as sla_ladder_router
 from conduit.supervisor.api.staff import router as staff_router
 
 router = APIRouter(prefix="/supervisor")
@@ -24,6 +25,12 @@ router = APIRouter(prefix="/supervisor")
 router.include_router(decisions_router)
 router.include_router(override_router)
 router.include_router(setup_router)
+# E5 (Spec §8 "Supervisor SLA/ladder CONFIG"): the SLA-preset /
+# escalation-ladder CONFIG CRUD owns the disjoint NEW prefixes
+# ``/supervisor/sla-presets`` + ``/supervisor/escalation-ladder`` — neither
+# overlaps ``setup``/``children``/``decisions`` nor any other CONFIG path,
+# so nothing is shadowed (additive, Resolution E / Spec §4).
+router.include_router(sla_ladder_router)
 router.include_router(accounts_router)
 router.include_router(binding_router)
 router.include_router(issue_codes_router)
