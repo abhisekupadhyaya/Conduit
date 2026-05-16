@@ -2439,7 +2439,7 @@ git commit -m "feat(hooks): use-accounts + use-update-self + account dialog"
 **Files:**
 - Create: `src/shell/supervisor/pages/manage-accounts.tsx`, `manage-servicers.tsx`, `manage-guests.tsx`
 
-- [ ] **Step 1: Shared `manage-accounts.tsx`**
+- [x] **Step 1: Shared `manage-accounts.tsx`**
 
 ```tsx
 import { useState } from "react"
@@ -2554,7 +2554,7 @@ export function ManageAccounts({ role, label }: { role: string; label: string })
 }
 ```
 
-- [ ] **Step 2: Role-bound wrappers**
+- [x] **Step 2: Role-bound wrappers**
 
 Create `src/shell/supervisor/pages/manage-servicers.tsx`:
 
@@ -2574,7 +2574,7 @@ export function ManageGuests() {
 }
 ```
 
-- [ ] **Step 3: Typecheck + commit**
+- [x] **Step 3: Typecheck + commit**
 
 ```bash
 npm run build
