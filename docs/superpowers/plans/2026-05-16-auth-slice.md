@@ -1265,7 +1265,7 @@ git commit -m "feat(schemas): auth + account I/O models"
 - Modify: `backend/conduit/public/api/__init__.py`
 - Test: `backend/tests/api/test_auth.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/api/test_auth.py`:
 
@@ -1321,12 +1321,12 @@ async def test_patch_me_changes_password(client, make_account, login):
     assert bad.status_code == 401 and good.status_code == 200
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/api/test_auth.py -q`
 Expected: FAIL — endpoints raise `NotImplementedError` / `/auth/me` missing.
 
-- [ ] **Step 3: Implement the auth router**
+- [x] **Step 3: Implement the auth router**
 
 Replace `conduit/public/api/auth.py`:
 
@@ -1381,12 +1381,12 @@ async def patch_me(body: SelfUpdateIn, actor: Actor = Depends(current_actor),
 
 > `public/api/__init__.py` already includes `auth_router`; `/me` lives on the same router, so no `__init__` change is needed. Confirm by reading it; if `auth_router` is included, skip.
 
-- [ ] **Step 4: Run it, expect pass**
+- [x] **Step 4: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/api/test_auth.py -q`
 Expected: PASS (3 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/public/api/auth.py tests/api/test_auth.py
