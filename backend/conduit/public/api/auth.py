@@ -25,7 +25,10 @@ async def login(body: LoginIn, response: Response,
 
 
 @router.post("/logout", status_code=204)
-async def logout(response: Response) -> None:
+async def logout(response: Response,
+                 actor: Actor = Depends(current_actor)) -> None:
+    # Auth-required so the auth-coverage guard's PUBLIC allowlist stays
+    # {health, login}; an unauthenticated POST returns 401.
     clear_session_cookie(response)
 
 

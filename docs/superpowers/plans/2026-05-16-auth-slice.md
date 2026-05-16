@@ -1552,14 +1552,14 @@ git commit -m "feat(api): supervisor account CRUD (no delete, D29)"
 - Create: `backend/tests/api/test_security_guards.py`
 - Create: `backend/tests/api/contract_snapshot.json` (generated in Step 4)
 
-- [ ] **Step 1: Ensure credentialed CORS for the explicit origin**
+- [x] **Step 1: Ensure credentialed CORS for the explicit origin**
 
 In `conduit/core/middleware.py` confirm `CORSMiddleware` uses
 `allow_origins=get_settings().cors_origin_list`, `allow_credentials=True`,
 and not `["*"]`. If it sets `allow_origins=["*"]`, change it to the settings
 list (cookies require an explicit origin). Keep the rest.
 
-- [ ] **Step 2: Write the structural guard tests**
+- [x] **Step 2: Write the structural guard tests**
 
 Create `tests/api/test_security_guards.py`:
 
@@ -1640,17 +1640,17 @@ async def test_jwt_tamper_and_alg_none_rejected(client, make_account, login):
     assert (await client.get("/api/auth/me")).status_code == 401
 ```
 
-- [ ] **Step 3: Run it, expect fail then snapshot-skip**
+- [x] **Step 3: Run it, expect fail then snapshot-skip**
 
 Run: `.venv/bin/python -m pytest tests/api/test_security_guards.py -q`
 Expected: first run creates the snapshot (one skip), others pass.
 
-- [ ] **Step 4: Re-run to enforce the snapshot**
+- [x] **Step 4: Re-run to enforce the snapshot**
 
 Run: `.venv/bin/python -m pytest tests/api/test_security_guards.py -q`
 Expected: PASS (all).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/core/middleware.py tests/api/test_security_guards.py tests/api/contract_snapshot.json
