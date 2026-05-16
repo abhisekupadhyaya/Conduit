@@ -673,3 +673,209 @@ async def test_roster_one_event_per_mutation(
             )
         ).scalar_one()
         assert str(ev.actor_account_id) == str(sup.id)
+
+
+# ===========================================================================
+# Task 7 — Servicer self portal API (spec §8 "Servicer — self", §7, §4).
+# APPENDED below the Task-5/6 supervisor bench; nothing above is modified.
+#
+# Business time is freezegun-pinned: conduit.core.clock.now() is the single
+# call site the servicer derivation reads, so freeze_time flips on/off-shift.
+# Roster windows are created via the supervisor API with EXPLICIT
+# shift_start/shift_end (request body, not clock.now()), so seeding happens
+# UNFROZEN. The servicer login + servicer request run together inside one
+# freeze_time block: the JWT iat/exp use the real wall clock, so the cookie
+# must be ISSUED and VALIDATED at the same frozen instant (login under freeze).
+# ===========================================================================
+
+from freezegun import freeze_time  # noqa: E402
+
+# The supervisor-roster bench seeds windows at 2026-05-16 08:00–16:00 UTC
+# (see _window()). These instants sit inside / outside that half-open window.
+_INSIDE = "2026-05-16T10:00:00+00:00"
+_OUTSIDE = "2026-05-20T10:00:00+00:00"
+
+
+async def _seed_servicer_on_roster(client, make_account, login, db):
+    """Supervisor seeds (UNFROZEN): a property+section, a profiled servicer,
+    a roster over 2026-05-16 08:00–16:00 UTC, and an active owner assignment.
+    Returns the servicer account. All via the REAL supervisor API."""
+    _, sec = await _seed_property_section(db)
+    sup = await _sup_login(make_account, login)
+    srv = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}", _PW)
+    await login(sup.username, _PW)
+    rid = (
+        await client.post("/api/supervisor/rosters", json=_window())
+    ).json()["id"]
+    await client.post(
+        f"/api/supervisor/staff/{srv.id}/profile",
+        json={"staff_class": "housekeeping"},
+    )
+    r = await client.post(
+        f"/api/supervisor/rosters/{rid}/assignments",
+        json={
+            "account_id": str(srv.id),
+            "section_id": str(sec.id),
+            "assignment": "owner",
+        },
+    )
+    assert r.status_code == 201, r.text
+    return srv
+
+
+async def test_servicer_home_on_shift_200(client, make_account, login, db):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    with freeze_time(_INSIDE):
+        await login(srv.username, _PW)
+        r = await client.get("/api/servicer/home")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["profile"] is not None
+    assert body["profile"]["class"] == "housekeeping"
+    assert body["current_shift"] is not None
+    assert body["presence_locked"] is False
+    assert body["effective_available"] is True
+
+
+async def test_servicer_presence_on_break_on_shift_200(
+    client, make_account, login, db
+):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    with freeze_time(_INSIDE):
+        await login(srv.username, _PW)
+        r = await client.put(
+            "/api/servicer/presence", json={"presence": "on_break"}
+        )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["presence"] == "on_break"
+    assert body["effective_available"] is False
+
+
+async def test_servicer_home_off_shift_locked(
+    client, make_account, login, db
+):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    with freeze_time(_OUTSIDE):
+        await login(srv.username, _PW)
+        r = await client.get("/api/servicer/home")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["current_shift"] is None
+    assert body["presence_locked"] is True
+    assert body["effective_available"] is False
+
+
+async def test_servicer_presence_off_shift_409(
+    client, make_account, login, db
+):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    with freeze_time(_OUTSIDE):
+        await login(srv.username, _PW)
+        r = await client.put(
+            "/api/servicer/presence", json={"presence": "working"}
+        )
+    assert r.status_code == 409, r.text
+
+
+async def test_servicer_home_as_supervisor_403(
+    client, make_account, login, db
+):
+    await _seed_property_section(db)
+    sup = await _sup_login(make_account, login)
+    with freeze_time(_INSIDE):
+        await login(sup.username, _PW)
+        r = await client.get("/api/servicer/home")
+    assert r.status_code == 403, r.text
+
+
+async def test_servicer_presence_delete_405(client, make_account, login, db):
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    with freeze_time(_INSIDE):
+        await login(srv.username, _PW)
+        r = await client.delete("/api/servicer/presence")
+    assert r.status_code == 405, r.text
+
+
+async def test_servicer_unprofiled_home_graceful(
+    client, make_account, login, db
+):
+    """Un-profiled servicer (provisioned, not yet profiled — a first-class
+    state per §4): home does NOT crash. profile null, presence the Working
+    default literal, effective_available False (no active profile)."""
+    srv = await make_account("servicer", f"srv-{uuid.uuid4().hex[:8]}", _PW)
+    with freeze_time(_INSIDE):
+        await login(srv.username, _PW)
+        r = await client.get("/api/servicer/home")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["profile"] is None
+    assert body["presence"] == "working"
+    assert body["effective_available"] is False
+
+
+async def test_servicer_presence_in_window_toggle_scopes(
+    client, make_account, login, db
+):
+    """Presence shift-scoping (spec §4): a toggle set while on-shift
+    (presence_set_at ∈ current_window) DOES suppress availability for that
+    window. The Task-3 derivation owns the scoping; confirm end-to-end that
+    an in-window Off both returns effective_available False on the PUT and on
+    a subsequent home read — yesterday's toggle never bleeds because the
+    derivation only counts presence_set_at inside the live window."""
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    with freeze_time(_INSIDE):
+        await login(srv.username, _PW)
+        r = await client.put(
+            "/api/servicer/presence", json={"presence": "off"}
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["effective_available"] is False
+        home = await client.get("/api/servicer/home")
+        assert home.json()["effective_available"] is False
+    # OUTSIDE the window the SAME presence_set_at is no longer in-window:
+    # the derivation reads the Working default — the toggle does not bleed.
+    with freeze_time(_OUTSIDE):
+        await login(srv.username, _PW)
+        off = await client.get("/api/servicer/home")
+    assert off.status_code == 200, off.text
+    # Off-shift: locked + not available (no window), but this proves the
+    # stored toggle did not persist as a global suppression.
+    assert off.json()["presence_locked"] is True
+
+
+async def test_servicer_presence_one_event_per_change(
+    client, make_account, login, db
+):
+    """Exactly one append-only presence_changed event per successful PUT —
+    uniform with the Task-5/6 ``test_one_event_per_mutation`` shape so the
+    Task-8 append-only guard sees one consistent pattern."""
+    import sqlalchemy as sa
+
+    from conduit.shared.models import Event, EventPresenceChanged
+
+    srv = await _seed_servicer_on_roster(client, make_account, login, db)
+    with freeze_time(_INSIDE):
+        await login(srv.username, _PW)
+        r = await client.put(
+            "/api/servicer/presence", json={"presence": "on_break"}
+        )
+        assert r.status_code == 200, r.text
+
+    rows = (
+        await db.execute(
+            sa.select(EventPresenceChanged).where(
+                EventPresenceChanged.account_id == srv.id
+            )
+        )
+    ).scalars().all()
+    assert len(rows) == 1, "expected exactly 1 presence_changed detail row"
+    ev = (
+        await db.execute(
+            sa.select(Event).where(
+                Event.id == rows[0].event_id,
+                Event.type == "presence_changed",
+            )
+        )
+    ).scalar_one()
+    assert str(ev.actor_account_id) == str(srv.id)

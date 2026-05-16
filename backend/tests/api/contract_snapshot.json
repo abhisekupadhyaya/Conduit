@@ -13,6 +13,10 @@
   ],
   [
     "GET",
+    "/api/servicer/home"
+  ],
+  [
+    "GET",
     "/api/servicer/queue"
   ],
   [
@@ -174,6 +178,10 @@
   [
     "POST",
     "/api/supervisor/stays/{stay_id}/relocate"
+  ],
+  [
+    "PUT",
+    "/api/servicer/presence"
   ],
   [
     "PUT",
