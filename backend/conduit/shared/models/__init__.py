@@ -63,6 +63,8 @@ from conduit.shared.models.recommendation import (
     RecDeny,
     RecBroadcast,
 )
+from conduit.shared.models.glitch import Glitch
+from conduit.shared.models.cross_dept_notification import CrossDeptNotification
 
 __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "IssueCode", "KBEntry", "Request", "ChildSubRequest",
@@ -79,4 +81,5 @@ __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "SLAPreset", "EscalationLadder",
            "WorkOrder", "Timer", "Escalation",
            "Recommendation", "RecReassign", "RecRelocate", "RecExtendSla",
-           "RecApprove", "RecDeny", "RecBroadcast"]
+           "RecApprove", "RecDeny", "RecBroadcast",
+           "Glitch", "CrossDeptNotification"]

@@ -4,6 +4,7 @@ from conduit.shared.models import SLAPreset, EscalationLadder
 from conduit.shared.models import WorkOrder, Timer, Escalation
 from conduit.shared.models import (Recommendation, RecReassign, RecRelocate,
     RecExtendSla, RecApprove, RecDeny, RecBroadcast)
+from conduit.shared.models import Glitch, CrossDeptNotification
 
 
 def test_sla_preset_columns():
@@ -48,3 +49,13 @@ def test_recommendation_family():
     assert {c.name for c in inspect(RecExtendSla).columns} == {"recommendation_escalation_id","extend_seconds"}
     for m in (RecApprove, RecDeny, RecBroadcast):
         assert {c.name for c in inspect(m).columns} == {"recommendation_escalation_id"}
+
+
+def test_glitch_columns():
+    assert {c.name for c in inspect(Glitch).columns} == {"id","child_id","state",
+        "opened_from","recovery_owed","recovery_cost","created_at","closed_at"}
+
+
+def test_cross_dept_columns():
+    assert {c.name for c in inspect(CrossDeptNotification).columns} == {"id",
+        "source_work_order_id","target_department","child_id","reason","state","created_at"}
