@@ -1044,7 +1044,7 @@ git commit -m "feat(service): supervisor account mgmt + lockout guards"
 - Create: `backend/conduit/public/services/auth.py`
 - Test: `backend/tests/services/test_auth.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/services/test_auth.py`:
 
@@ -1102,12 +1102,12 @@ async def test_update_self_password(db, make_account):
     assert verify_password("new-123456", acc.secret_hash)
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/services/test_auth.py -q`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `conduit/public/services/auth.py`:
 
@@ -1161,12 +1161,12 @@ async def update_self(s: AsyncSession, acc: Account, *, status_change=None,
     return acc
 ```
 
-- [ ] **Step 4: Run it, expect pass**
+- [x] **Step 4: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/services/test_auth.py -q`
 Expected: PASS (2 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/public/services/auth.py tests/services/test_auth.py
