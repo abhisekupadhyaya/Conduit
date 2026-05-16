@@ -15,6 +15,8 @@ import { SupervisorSettings } from "@/shell/supervisor/pages/settings"
 import { ManageServicers } from "@/shell/supervisor/pages/manage-servicers"
 import { ManageGuests } from "@/shell/supervisor/pages/manage-guests"
 import { SectionsPage } from "@/shell/supervisor/pages/sections"
+import { IssueCodesPage } from "@/shell/supervisor/pages/issue-codes"
+import { KnowledgeBasePage } from "@/shell/supervisor/pages/knowledge-base"
 import { ProvisioningPage } from "@/shell/supervisor/pages/provisioning"
 
 // One SPA, one shared shell, role-routed. Only the nav config differs.
@@ -61,6 +63,8 @@ export default function App() {
         <Route path="accounts/servicers" element={<ManageServicers />} />
         <Route path="accounts/guests" element={<ManageGuests />} />
         <Route path="setup/sections" element={<SectionsPage />} />
+        <Route path="setup/issue-codes" element={<IssueCodesPage />} />
+        <Route path="knowledge-base" element={<KnowledgeBasePage />} />
         <Route path="provisioning" element={<ProvisioningPage />} />
         {/* Remaining supervisor pages render here as they are built. */}
         <Route path="*" element={<SupervisorHome />} />
