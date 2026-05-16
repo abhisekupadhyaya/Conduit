@@ -5,6 +5,7 @@ from conduit.shared.models import WorkOrder, Timer, Escalation
 from conduit.shared.models import (Recommendation, RecReassign, RecRelocate,
     RecExtendSla, RecApprove, RecDeny, RecBroadcast)
 from conduit.shared.models import Glitch, CrossDeptNotification
+from conduit.shared.models import ChildSubRequest, IssueCode
 
 
 def test_sla_preset_columns():
@@ -59,3 +60,21 @@ def test_glitch_columns():
 def test_cross_dept_columns():
     assert {c.name for c in inspect(CrossDeptNotification).columns} == {"id",
         "source_work_order_id","target_department","child_id","reason","state","created_at"}
+
+
+def test_child_additive_columns():
+    cols = {c.name for c in inspect(ChildSubRequest).columns}
+    assert {"priority_tier","closure","revised_eta","predecessor_child_id"} <= cols
+
+
+def test_child_state_check_widened():
+    ck = next(c for c in ChildSubRequest.__table__.constraints
+              if getattr(c, "name", "") == "ck_child_state")
+    txt = str(ck.sqltext)
+    for s in ("routing","pushed","broadcast","accepted","in_progress",
+              "done_pending_confirm","cancelled"):
+        assert s in txt
+
+
+def test_issue_code_sla_fk():
+    assert "sla_preset_id" in {c.name for c in inspect(IssueCode).columns}
