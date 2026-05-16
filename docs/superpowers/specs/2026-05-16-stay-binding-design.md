@@ -87,7 +87,54 @@ it.
 | Relocation trigger | **Supervisor action only.** The internal `relocate_stay` service is the exact seam the future glitch spine re-enters — kept clean, but no spine seam over-built now |
 | Event seam | Generic append-only `event` base preserves entities.md's universal-log evolution seam (new type = new detail table + extended CHECK — additive, never migrates existing rows). Append-only enforced by no-app-write-path + asserted invariant (no DB trigger — ceremony at this volume) |
 | Layering | `api → services → dal → models`; services raise domain errors (404/409/422), never `HTTPException`; services `flush`, commit at the request edge; ORM up, schema mapping at the API layer only |
+| Portal ownership | Three **self-contained portals** (`guest`/`servicer`/`supervisor`), each with its own `dal`/`services`/`api`; **no cross-import among the three**. `public/` (auth, health) is the pre-portal front door, not a portal. A portal reaches the DB *only* through `shared/models` via its **own** DAL — the shared contract is the **model, not the DAL** |
+| Binding read duplication | Supervisor owns binding CRUD + event writes (`supervisor/dal/`); the ambient resolver in `public/` has its **own** read (`public/dal/bindings.py`) over the *same shared models*. The ~one-function `Stay` read overlap is **intentional and cheap** — the price of portal self-containment; consistency is guaranteed by the shared model, not a shared DAL |
+| Event scope | Events emitted on the **three stay transitions only** (`stay_created`/`stay_ended`/`guest_relocated`); benign date edits and section/room config changes emit **nothing** (not journey-meaningful transitions) |
 | Deletes | **No `DELETE`** anywhere (D29 / lean). `DELETE → 405`, asserted as an invariant (mirrors auth) |
+
+### Module ownership & layout
+
+```
+shared/models/        Property, Section, Room, Stay, Event(+3 detail)   ← DB contract
+supervisor/dal/       sections.py rooms.py stays.py events.py           ← CRUD + event writes
+supervisor/services/  sections.py rooms.py stays.py                     ← business logic, domain errors
+supervisor/api/       setup.py (sections/rooms) + stays.py              ← thin: gate + map + 1 service call
+public/dal/           bindings.py: get_active_binding_for_guest()       ← the one ambient read
+public/services/auth.py  resolve_ambient()  (EXTEND — §6 seam)          ← auth-owned coordination point
+```
+
+- **`supervisor/dal/`** (imports `shared/models` only) — `sections.py`
+  (`get` · `get_by_label` · `list_with_room_counts` · `insert` · `update`);
+  `rooms.py` (`get` · `get_by_label` · `list` · `insert` · `update`);
+  `stays.py` (`get` · `get_active_stay_for_guest` · `list` · `insert` ·
+  `update_fields` · `set_room` · `set_status`); `events.py` (`insert_event`
+  · `insert_stay_created` · `insert_stay_ended` · `insert_guest_relocated`
+  — primitives only; the "which detail" branch is a service rule, not DAL).
+- **`public/dal/bindings.py`** (imports `shared/models` only) —
+  `get_active_binding_for_guest(db, guest_account_id) -> (Stay, Room,
+  Section) | None`: the single joined read, read-only (public never writes
+  binding data).
+- **`supervisor/services/`** — `sections.py` (`list`, `create` [dup→409],
+  `rename` [missing→404, dup→409]); `rooms.py` (`list`, `create`
+  [section missing→422, dup→409], `update` [room missing→404, new section
+  missing→422, dup→409]); `stays.py` (`list`; `create_stay`
+  [guest not guest/active→422, room missing→422, existing active stay→409,
+  then `event`+`stay_created`]; `update_stay` [missing→404, benign fields,
+  **no event**]; `relocate_stay` [missing→404, not active→409, room
+  missing→422, same room→409, then `event`+`guest_relocated`] — *the seam
+  the future glitch spine re-enters*; `checkout_stay` [missing→404, not
+  active→409, then `event`+`stay_ended`]).
+- **`public/services/auth.py`** (EXTEND, auth-owned) — `resolve_ambient(db,
+  account)`: `role != guest` → `None`; else `get_active_binding_for_guest`
+  mapped to ambient fields or `None`. Owns the rule "only guests have
+  ambient; no active stay ⇒ null." §6 cross-worktree coordination point.
+- **Seed** (`python -m conduit.seed`, extended) — `ensure_property(db)`:
+  idempotency is a rule (service/seed level); DAL stays plain
+  (`get_singleton_property` / `insert_property`).
+
+> Recorded as a one-line note in `code-structure.md` (mirroring how the
+> auth slice recorded its DAL-ownership note): *portals are self-contained;
+> the ambient binding read is duplicated in `public/dal/` by design.*
 
 ## 5. Data model
 
