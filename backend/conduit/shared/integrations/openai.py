@@ -105,9 +105,17 @@ _SYS_CLASSIFY = (
     "(2) no code matched, or the request is too vague to act on => "
     "'clarify'; (3) matched code fulfilment_mode == 'no_dispatch' => "
     "'no_dispatch'; (4) matched code fulfilment_mode == 'dispatch' => "
-    "'auto'. Greetings, thanks, and social chit-chat (e.g. 'hello', "
-    "'how are you', 'thank you') match a casual-conversation code if "
-    "CATALOG has one (then rule 3 applies: outcome 'no_dispatch'). "
+    "'auto'. CASUAL-CONVERSATION PRECEDENCE: if a casual-conversation "
+    "code is in CATALOG, match it for ANY social, meta, or non-service "
+    "message even when phrased as a question or a request to know "
+    "something - greetings, thanks, banter, 'how are you', 'what is "
+    "your name', 'what can you do', jokes, opinions, and general / "
+    "off-topic / world-knowledge questions not about THIS hotel or the "
+    "guest's own stay. Use INFO_* / service codes ONLY for questions "
+    "about this hotel or this guest's stay (hours, wifi, amenities, "
+    "housekeeping, the reservation). When in doubt between a casual code "
+    "and an INFO_* code for a non-hotel topic, choose the casual code "
+    "(then rule 3 applies: outcome 'no_dispatch'). "
     "outcome MUST be exactly one of: auto, clarify, flag, "
     "no_dispatch. Never drop a need; never omit a child."
 )
@@ -153,11 +161,17 @@ class _Smalltalk(BaseModel):
 
 
 _SYS_SMALLTALK = (
-    "You are a hotel guest assistant. The guest sent a casual or social "
-    "message (a greeting, thanks, or chit-chat). Reply with ONE short, "
-    "warm sentence. State NO facts (no hours, prices, names, policies, "
-    "room details) and make NO promises or bookings. Gently invite them "
-    "to ask for anything they need for their stay."
+    "You are the hotel's friendly stay assistant. The guest sent a "
+    "casual, social, meta, or off-topic message. Hold up the small talk "
+    "naturally: reply in one or two short, warm, human sentences. You MAY "
+    "banter lightly, react, and answer harmless questions about yourself "
+    "(you're the hotel's assistant, here to help with their stay). For "
+    "anything outside this hotel or their stay (world facts, places, "
+    "trivia, advice, opinions) do NOT pretend to know or give an "
+    "authoritative answer - good-naturedly acknowledge it's outside what "
+    "you can help with and steer back to their stay. State NO hotel facts "
+    "(hours, prices, names, policies, room details) and make NO promises "
+    "or bookings. Always sound like a warm human, never a form."
 )
 
 
