@@ -36,7 +36,19 @@ from conduit.shared.models.event import (
     EventChildParked,
     EventChildClosed,
     EventChildReopened,
+    EventStaffProfileCreated,
+    EventStaffProfileUpdated,
+    EventStaffSkillsSet,
+    EventRosterCreated,
+    EventRosterUpdated,
+    EventAssignmentCreated,
+    EventAssignmentUpdated,
+    EventPresenceChanged,
 )
+from conduit.shared.models.staff_profile import StaffProfile
+from conduit.shared.models.staff_skill import StaffSkill
+from conduit.shared.models.roster import Roster
+from conduit.shared.models.roster_assignment import RosterAssignment
 
 __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "IssueCode", "KBEntry", "Request", "ChildSubRequest",
@@ -44,4 +56,9 @@ __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "Event", "EventStayCreated", "EventStayEnded",
            "EventGuestRelocated", "EventRequestCreated", "EventChildTriaged",
            "EventChildAnswered", "EventChildDeferred", "EventChildParked",
-           "EventChildClosed", "EventChildReopened"]
+           "EventChildClosed", "EventChildReopened",
+           "EventStaffProfileCreated", "EventStaffProfileUpdated",
+           "EventStaffSkillsSet", "EventRosterCreated", "EventRosterUpdated",
+           "EventAssignmentCreated", "EventAssignmentUpdated",
+           "EventPresenceChanged",
+           "StaffProfile", "StaffSkill", "Roster", "RosterAssignment"]

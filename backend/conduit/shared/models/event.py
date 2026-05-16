@@ -17,7 +17,10 @@ class Event(Base):
         CheckConstraint(
             "type in ('stay_created','stay_ended','guest_relocated',"
             "'request_created','child_triaged','child_answered',"
-            "'child_deferred','child_parked','child_closed','child_reopened')",
+            "'child_deferred','child_parked','child_closed','child_reopened',"
+            "'staff_profile_created','staff_profile_updated',"
+            "'staff_skills_set','roster_created','roster_updated',"
+            "'assignment_created','assignment_updated','presence_changed')",
             name="ck_event_type"),
     )
     id: Mapped[uuid.UUID] = mapped_column(
@@ -102,3 +105,83 @@ class EventChildAnswered(Base):
     resolution_child_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("no_dispatch_resolution.child_id"),
         nullable=False)
+
+
+class EventStaffProfileCreated(Base):
+    __tablename__ = "event_staff_profile_created"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=False,
+    )
+
+
+class EventStaffProfileUpdated(Base):
+    __tablename__ = "event_staff_profile_updated"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=False,
+    )
+
+
+class EventStaffSkillsSet(Base):
+    __tablename__ = "event_staff_skills_set"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=False,
+    )
+
+
+class EventRosterCreated(Base):
+    __tablename__ = "event_roster_created"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    roster_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("roster.id"), nullable=False,
+    )
+
+
+class EventRosterUpdated(Base):
+    __tablename__ = "event_roster_updated"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    roster_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("roster.id"), nullable=False,
+    )
+
+
+class EventAssignmentCreated(Base):
+    __tablename__ = "event_assignment_created"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("roster_assignment.id"), nullable=False,
+    )
+
+
+class EventAssignmentUpdated(Base):
+    __tablename__ = "event_assignment_updated"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("roster_assignment.id"), nullable=False,
+    )
+
+
+class EventPresenceChanged(Base):
+    __tablename__ = "event_presence_changed"
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True,
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("account.id"), nullable=False,
+    )
