@@ -145,3 +145,139 @@ def test_legacy_transition_still_importable():
     # then call ``lifecycle.transition`` — that name must still resolve.
     from conduit.shared.domain import lifecycle
     assert callable(lifecycle.transition)
+
+
+# --- C4: lifecycle.transition orchestrator (DB-backed) -----------------------
+
+import datetime as dt  # noqa: E402
+import uuid  # noqa: E402
+
+import pytest  # noqa: E402
+import sqlalchemy as sa  # noqa: E402
+
+from conduit.core.exceptions import ConflictError  # noqa: E402
+from conduit.shared.domain import lifecycle  # noqa: E402
+from conduit.shared.models import (CrossDeptNotification, Event,  # noqa: E402
+                                   EventChildTriaged,
+                                   EventChildDonePendingConfirm,
+                                   EventWorkOrderCompleted, Timer, WorkOrder)
+
+
+async def _wo_on(db, child, *, state: str, kind: str = "dispatch",
+                 routing_model: str = "section_pooled",
+                 priority_tier: str = "P3") -> WorkOrder:
+    """Build a WorkOrder on ``child`` already advanced to ``state`` (the WO
+    machine is created->pushed->accepted->in_progress->completed, so the row
+    is constructed at the desired pre-transition state directly)."""
+    wo = WorkOrder(child_id=child.id, kind=kind, routing_model=routing_model,
+                   priority_tier=priority_tier, state=state)
+    db.add(wo)
+    await db.flush()
+    return wo
+
+
+async def test_workorder_completed_orchestrates_child_and_xdn(db, make_child):
+    child = await make_child(db)
+    # Child must be on the dispatch arc so it can move to done_pending_confirm.
+    child.state = "in_progress"
+    db.add(child)
+    await db.flush()
+    wo = await _wo_on(db, child, state="in_progress")
+
+    await lifecycle.transition(db, wo, "completed", actor=None,
+                               target_department="engineering",
+                               xdn_reason="follow-up needed")
+    await db.flush()
+
+    # (a) state changed
+    assert wo.state == "completed"
+    # (b) exactly ONE work_order_completed event + its detail
+    ev = (await db.execute(sa.select(Event)
+          .where(Event.type == "work_order_completed"))).scalars().all()
+    assert len(ev) == 1
+    det = (await db.execute(
+        sa.select(EventWorkOrderCompleted))).scalars().all()
+    assert len(det) == 1 and det[0].work_order_id == wo.id
+    # (c) cross-entity hop: linked child -> done_pending_confirm + its event
+    await db.refresh(child)
+    assert child.state == "done_pending_confirm"
+    cev = (await db.execute(sa.select(Event)
+           .where(Event.type == "child_done_pending_confirm"))
+           ).scalars().all()
+    assert len(cev) == 1
+    cdet = (await db.execute(
+        sa.select(EventChildDonePendingConfirm))).scalars().all()
+    assert len(cdet) == 1 and cdet[0].child_id == child.id
+    # (c cont.) downstream dept declared via ctx ⇒ a CrossDeptNotification row
+    xdn = (await db.execute(
+        sa.select(CrossDeptNotification))).scalars().all()
+    assert len(xdn) == 1
+    assert xdn[0].source_work_order_id == wo.id
+    assert xdn[0].target_department == "engineering"
+    assert xdn[0].child_id == child.id
+
+
+async def test_workorder_illegal_transition_is_side_effect_free(db,
+                                                                make_child):
+    child = await make_child(db)
+    wo = await _wo_on(db, child, state="created")  # created->completed illegal
+
+    before_ev = (await db.execute(
+        sa.select(sa.func.count()).select_from(Event))).scalar_one()
+
+    with pytest.raises(ConflictError):
+        await lifecycle.transition(db, wo, "completed", actor=None)
+    await db.flush()
+
+    # No state change, no event written — illegal == zero side effects.
+    await db.refresh(wo)
+    assert wo.state == "created"
+    after_ev = (await db.execute(
+        sa.select(sa.func.count()).select_from(Event))).scalar_one()
+    assert after_ev == before_ev
+    assert (await db.execute(sa.select(sa.func.count())
+            .select_from(EventWorkOrderCompleted))).scalar_one() == 0
+
+
+async def test_child_transition_back_compat_single_event(db, make_child):
+    # Mirrors test_lifecycle.py::test_transition_sets_state_and_appends_event:
+    # the legacy child path emits exactly ONE child_* event, unchanged.
+    child = await make_child(db)
+    await lifecycle.transition(db, child, "triaged", actor_account_id=None)
+    await db.flush()
+    assert child.state == "triaged"
+    ev = (await db.execute(sa.select(Event)
+          .where(Event.type == "child_triaged"))).scalars().all()
+    assert len(ev) == 1
+    det = (await db.execute(sa.select(EventChildTriaged))).scalars().all()
+    assert len(det) == 1 and det[0].child_id == child.id
+
+
+async def test_child_routing_creates_work_order_and_arms_timers(db,
+                                                                make_child):
+    # D23: child -> routing creates a WorkOrder + arms accept_window and
+    # fulfilment_sla timers in the same transaction.
+    child = await make_child(db)
+    child.state = "triaged"
+    db.add(child)
+    await db.flush()
+
+    await lifecycle.transition(db, child, "routing", actor=None,
+                               kind="dispatch",
+                               routing_model="section_pooled",
+                               priority_tier="P3")
+    await db.flush()
+
+    assert child.state == "routing"
+    wo = (await db.execute(sa.select(WorkOrder)
+          .where(WorkOrder.child_id == child.id))).scalars().all()
+    assert len(wo) == 1
+    timers = (await db.execute(sa.select(Timer)
+              .where(Timer.child_id == child.id))).scalars().all()
+    kinds = {t.type for t in timers}
+    assert "accept_window" in kinds
+    assert "fulfilment_sla" in kinds
+    # exactly one child_routed event
+    cev = (await db.execute(sa.select(Event)
+           .where(Event.type == "child_routed"))).scalars().all()
+    assert len(cev) == 1
