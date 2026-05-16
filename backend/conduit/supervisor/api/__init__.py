@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from conduit.supervisor.api.accounts import router as accounts_router
+from conduit.supervisor.api.awareness import router as awareness_router
 from conduit.supervisor.api.binding import router as binding_router
 from conduit.supervisor.api.decisions import router as decisions_router
 from conduit.supervisor.api.issue_codes import router as issue_codes_router
@@ -31,6 +32,17 @@ router.include_router(setup_router)
 # overlaps ``setup``/``children``/``decisions`` nor any other CONFIG path,
 # so nothing is shadowed (additive, Resolution E / Spec §4).
 router.include_router(sla_ladder_router)
+# E6 (Spec §8/§9 "Supervisor awareness"): the awareness stream — the FIRST
+# event read model — owns the disjoint NEW prefix ``/supervisor/awareness``.
+# It is a WATCH-ONLY surface, deliberately DISTINCT from the E3
+# ``/supervisor/decisions`` act-only queue (D2 — watch vs act, two
+# separate routes; awareness is NOT folded into decisions). The prefix
+# overlaps NEITHER ``decisions``/``children``/``setup``/``sla-presets``/
+# ``escalation-ladder`` NOR any other CONFIG path, so nothing is shadowed
+# (additive, Resolution E / Spec §4). It is also OUT of the staffing
+# route-snapshot ``_STAFFING_PREFIXES`` (``/supervisor/staff`` /
+# ``/supervisor/rosters`` / ``/servicer/``), so the snapshot is untouched.
+router.include_router(awareness_router)
 router.include_router(accounts_router)
 router.include_router(binding_router)
 router.include_router(issue_codes_router)
