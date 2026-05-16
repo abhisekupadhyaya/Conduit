@@ -27,3 +27,9 @@ async def record_event(session: Any, event: Event) -> None:
     records, so the log can never disagree with state (AD5).
     """
     raise NotImplementedError("event model pending — see docs/datamodels")
+
+
+from conduit.shared.events.writer import (  # noqa: E402,F401
+    emit_request_created,
+    emit_child,
+)

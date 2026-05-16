@@ -10,6 +10,11 @@ from __future__ import annotations
 
 from enum import Enum
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from conduit.core.exceptions import ConflictError
+from conduit.shared.events import writer
+
 
 class ChildState(str, Enum):
     INTAKE = "intake"
@@ -28,7 +33,28 @@ class ChildState(str, Enum):
     CANCELLED = "cancelled"
 
 
-def transition(child_id: str, to: ChildState) -> None:
+_LEGAL = {
+    "intake": {"triaged"},
+    "triaged": {"answered", "concierge_queue"},
+    "answered": {"closed", "reopened"},
+    "reopened": {"concierge_queue"},
+}
+_EVENT = {
+    "triaged": "child_triaged",
+    "answered": "child_answered",
+    "concierge_queue": "child_deferred",
+    "closed": "child_closed",
+    "reopened": "child_reopened",
+}
+
+
+async def transition(s: AsyncSession, child, to: str, *,
+                     actor_account_id=None, resolution_child_id=None) -> None:
     """Apply a guarded transition and append the corresponding event
     (conduit.shared.events) in the same transaction (AD5)."""
-    raise NotImplementedError
+    if to not in _LEGAL.get(child.state, set()):
+        raise ConflictError(f"illegal transition {child.state}->{to}")
+    child.state = to
+    s.add(child)
+    await writer.emit_child(s, _EVENT[to], child.id, actor_account_id,
+                            resolution_child_id=resolution_child_id)
