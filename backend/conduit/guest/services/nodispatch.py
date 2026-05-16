@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.guest.dal import resolutions as rdal
 from conduit.shared.domain import grounding, lifecycle
+from conduit.shared.integrations.openai import LLMUnavailable
 from conduit.supervisor.dal import kb as kbdal
 
 
@@ -27,7 +28,7 @@ async def resolve(s: AsyncSession, child, ambient: dict, actor_id) -> dict:
              "stay_status": ambient["stay_status"]}
     try:
         g = await grounding.ground(child.text, kb=kb, facts=facts)
-    except Exception:                                  # LLMUnavailable
+    except LLMUnavailable:                             # AD11 degrade only
         g = {"grounded": False, "leaves_no_dispatch": False, "answer": "",
              "used_kb_ids": [], "used_fields": []}
     if g["grounded"] and not g["leaves_no_dispatch"]:

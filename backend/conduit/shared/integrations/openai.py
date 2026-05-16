@@ -105,7 +105,10 @@ _SYS_CLASSIFY = (
     "(2) no code matched, or the request is too vague to act on => "
     "'clarify'; (3) matched code fulfilment_mode == 'no_dispatch' => "
     "'no_dispatch'; (4) matched code fulfilment_mode == 'dispatch' => "
-    "'auto'. outcome MUST be exactly one of: auto, clarify, flag, "
+    "'auto'. Greetings, thanks, and social chit-chat (e.g. 'hello', "
+    "'how are you', 'thank you') match a casual-conversation code if "
+    "CATALOG has one (then rule 3 applies: outcome 'no_dispatch'). "
+    "outcome MUST be exactly one of: auto, clarify, flag, "
     "no_dispatch. Never drop a need; never omit a child."
 )
 _SYS_GROUND = (
@@ -145,6 +148,33 @@ async def _parse_ground(model: str, content: str) -> _Ground:
     return r.output_parsed
 
 
+class _Smalltalk(BaseModel):
+    reply: str
+
+
+_SYS_SMALLTALK = (
+    "You are a hotel guest assistant. The guest sent a casual or social "
+    "message (a greeting, thanks, or chit-chat). Reply with ONE short, "
+    "warm sentence. State NO facts (no hours, prices, names, policies, "
+    "room details) and make NO promises or bookings. Gently invite them "
+    "to ask for anything they need for their stay."
+)
+
+
+@retry(
+    stop=stop_after_attempt(2),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+async def _parse_smalltalk(model: str, message: str) -> _Smalltalk:
+    r = await _client().responses.parse(
+        model=model,
+        input=[{"role": "system", "content": _SYS_SMALLTALK},
+               {"role": "user", "content": message}],
+        text_format=_Smalltalk, reasoning={"effort": "low"})
+    return r.output_parsed
+
+
 async def classify(text: str, catalog: list[dict]) -> list[dict]:
     s = get_settings()
     if _circuit_open():
@@ -176,3 +206,16 @@ async def ground(question: str, context: str) -> dict:
         raise LLMUnavailable(str(e))
     _record_success()
     return parsed.model_dump()
+
+
+async def smalltalk(message: str) -> str:
+    s = get_settings()
+    if _circuit_open():
+        raise LLMUnavailable("circuit open")
+    try:
+        parsed = await _parse_smalltalk(s.openai_model, message)
+    except Exception as e:
+        _record_failure()
+        raise LLMUnavailable(str(e))
+    _record_success()
+    return parsed.reply

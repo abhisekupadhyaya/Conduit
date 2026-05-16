@@ -19,6 +19,7 @@ from conduit.guest.dal import children as cdal
 from conduit.guest.dal import requests as rdal
 from conduit.guest.dal import resolutions as resdal
 from conduit.guest.services import nodispatch
+from conduit.guest.services import smalltalk
 from conduit.shared.domain import lifecycle, triage
 from conduit.shared.events import writer
 from conduit.shared.integrations.openai import LLMUnavailable
@@ -60,7 +61,9 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
         await s.flush()
         await lifecycle.transition(s, child, "triaged",
             actor_account_id=actor.id)
-        if t.outcome.value == "no_dispatch":
+        if ic is not None and ic.code == "SMALLTALK":
+            term = await smalltalk.resolve(s, child, actor.id)
+        elif t.outcome.value == "no_dispatch":
             term = await nodispatch.resolve(s, child, ambient, actor.id)
         else:
             await writer.emit_child(s, "child_parked", child.id, actor.id)
