@@ -2,7 +2,9 @@ import datetime as dt
 import uuid
 
 import pytest
+from freezegun import freeze_time
 
+from conduit.core.clock import now as clock_now
 from conduit.shared.domain.availability import (
     current_window,
     effective_available,
@@ -80,3 +82,10 @@ def test_current_window_and_on_shift():
     assert on_shift(asgs, BEFORE) is False
     assert current_window(asgs, MID) is asgs[0].roster
     assert current_window(asgs, BEFORE) is None
+
+
+def test_clock_now_is_freezable_and_utc():
+    with freeze_time("2026-05-16T12:00:00Z"):
+        n = clock_now()
+    assert n.tzinfo is not None
+    assert n.year == 2026 and n.hour == 12
