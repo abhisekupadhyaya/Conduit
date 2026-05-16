@@ -1,52 +1,41 @@
-import { useCallback, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
+import { api, setOnUnauthorized } from "@/lib/api-client"
 import { AuthContext, type User } from "@/auth/use-auth"
 
-const STORAGE_KEY = "conduit-auth"
+type Me = { id: string; role: User["role"]; username: string; display_name: string }
+const toUser = (m: Me): User =>
+  ({ id: m.id, role: m.role, username: m.username, name: m.display_name })
 
-function readStored(): User | null {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? (JSON.parse(raw) as User) : null
-  } catch {
-    return null
-  }
-}
-
-/**
- * Scaffolding auth. App-managed session (AD8) — no Cognito.
- * The real implementation will call the backend; for now this fakes a
- * supervisor-provisioned login so the shells are reachable.
- */
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<User | null>(readStored)
+  const [user, setUser] = useState<User | null>(null)
+  const [loading, setLoading] = useState(true)
 
-  const login = useCallback(async (username: string, _password: string) => {
-    void _password
-    // Stub: derive a role from the username prefix until the API exists.
-    const role = username.startsWith("sup")
-      ? "supervisor"
-      : username.startsWith("svc")
-        ? "servicer"
-        : "guest"
-    const next: User = {
-      id: crypto.randomUUID(),
-      name: username,
-      email: `${username}@conduit.local`,
-      role,
+  const refreshUser = useCallback(async () => {
+    try {
+      setUser(toUser(await api.get<Me>("/auth/me")))
+    } catch {
+      setUser(null)
     }
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-    setUser(next)
   }, [])
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(STORAGE_KEY)
-    setUser(null)
+  const login = useCallback(async (username: string, password: string) => {
+    const m = await api.post<Me>("/auth/login", { username, password })
+    setUser(toUser(m))
   }, [])
+
+  const logout = useCallback(async () => {
+    try { await api.post("/auth/logout", {}) } finally { setUser(null) }
+  }, [])
+
+  useEffect(() => {
+    setOnUnauthorized(() => setUser(null))
+    refreshUser().finally(() => setLoading(false))
+  }, [refreshUser])
 
   const value = useMemo(
-    () => ({ user, isAuthenticated: user !== null, login, logout }),
-    [user, login, logout]
-  )
+    () => ({ user, isAuthenticated: user !== null, loading,
+             login, logout, refreshUser }),
+    [user, loading, login, logout, refreshUser])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

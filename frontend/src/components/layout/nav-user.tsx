@@ -24,10 +24,12 @@ import {
 import {
   ChevronsUpDownIcon,
   LogOutIcon,
+  SettingsIcon,
   SunIcon,
   MoonIcon,
   MonitorIcon,
 } from "lucide-react"
+import { Link } from "react-router-dom"
 import { useTheme, type Theme } from "@/components/theme-provider"
 import { useAuth } from "@/auth/use-auth"
 
@@ -42,7 +44,7 @@ export function NavUser() {
   const { user, logout } = useAuth()
 
   const name = user?.name ?? "User"
-  const email = user?.email ?? ""
+  const username = user?.username ?? ""
 
   return (
     <SidebarMenu>
@@ -60,7 +62,7 @@ export function NavUser() {
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{name}</span>
-                <span className="truncate text-xs">{email}</span>
+                <span className="truncate text-xs">{username}</span>
               </div>
               <ChevronsUpDownIcon className="ml-auto size-4" />
             </SidebarMenuButton>
@@ -80,7 +82,7 @@ export function NavUser() {
                 </Avatar>
                 <div className="grid flex-1 text-left text-sm leading-tight">
                   <span className="truncate font-medium">{name}</span>
-                  <span className="truncate text-xs">{email}</span>
+                  <span className="truncate text-xs">{username}</span>
                 </div>
               </div>
             </DropdownMenuLabel>
@@ -117,7 +119,11 @@ export function NavUser() {
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={logout}>
+            <DropdownMenuItem asChild>
+              <Link to="settings"><SettingsIcon />Settings</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { void logout() }}>
               <LogOutIcon />
               Log out
             </DropdownMenuItem>
