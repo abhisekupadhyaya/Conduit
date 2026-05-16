@@ -2803,7 +2803,7 @@ git commit -m "refactor(ui): retrofit shells to shared primitives + mount Toaste
 
 ### Task 25: Backend suite + frontend build, both green
 
-- [ ] **Step 1: Full backend suite + coverage gate**
+- [x] **Step 1: Full backend suite + coverage gate**
 
 ```bash
 cd /workspace/Conduit-auth-slice/backend
@@ -2812,7 +2812,7 @@ cd /workspace/Conduit-auth-slice/backend
 
 Expected: ALL PASS, coverage ≥ 90% on the scoped modules, contract snapshot enforced, leak sentinel quiet.
 
-- [ ] **Step 2: Frontend production build**
+- [x] **Step 2: Frontend production build**
 
 ```bash
 cd /workspace/Conduit-auth-slice/frontend
@@ -2830,7 +2830,7 @@ log out; log in as the servicer → lands on `/servicer`. Stop both servers.
 
 ### Task 26: Push branch + open PR
 
-- [ ] **Step 1: Confirm clean tree on the feature branch**
+- [x] **Step 1: Confirm clean tree on the feature branch**
 
 ```bash
 cd /workspace/Conduit-auth-slice
@@ -2838,13 +2838,13 @@ git status --short   # expect empty
 git log --oneline auth-slice-design..HEAD   # the slice commits
 ```
 
-- [ ] **Step 2: Push the branch**
+- [x] **Step 2: Push the branch**
 
 ```bash
 git push -u origin feat/auth-slice
 ```
 
-- [ ] **Step 3: Open the PR**
+- [x] **Step 3: Open the PR**
 
 ```bash
 gh pr create --base main --head feat/auth-slice \
@@ -2873,7 +2873,7 @@ EOF
 
 Expected: PR URL printed. Report it to the user.
 
-- [ ] **Step 4: Report**
+- [x] **Step 4: Report**
 
 Surface the PR URL and the final `pytest` summary to the user.
 
