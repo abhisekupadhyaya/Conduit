@@ -104,3 +104,6 @@ Conduit/
   uses the docker-compose Postgres/MinIO as the RDS/S3 alternatives.
 - `dev-ops/{terraform,scripts}` + Amplify is the AWS deploy target. Two
   independent pipelines: frontend = Amplify git push; backend = ECR → ECS.
+- **Account persistence is owned by `public/dal/accounts.py`** and imported by
+  `supervisor` services (one-directional public←supervisor) — single source of
+  truth for the one IDENTITY table; no DAL duplicated across slices.

@@ -1760,7 +1760,7 @@ git commit -m "feat(seed): idempotent bootstrap supervisor (fail-fast)"
 - Modify: `backend/pyproject.toml` (coverage fail-under)
 - Modify: `docs/archi/code-structure.md` (one-line DAL note)
 
-- [ ] **Step 1: Add the coverage gate scoped to auth modules**
+- [x] **Step 1: Add the coverage gate scoped to auth modules**
 
 In `pyproject.toml` `[tool.pytest.ini_options].addopts`, set:
 
@@ -1768,7 +1768,7 @@ In `pyproject.toml` `[tool.pytest.ini_options].addopts`, set:
 addopts = "-ra --strict-markers --cov=conduit.public --cov=conduit.supervisor --cov=conduit.core --cov=conduit.shared.models --cov-fail-under=90 --cov-report=term-missing"
 ```
 
-- [ ] **Step 2: Add the code-structure note**
+- [x] **Step 2: Add the code-structure note**
 
 In `docs/archi/code-structure.md`, under "Deltas", add one bullet:
 
@@ -1778,12 +1778,12 @@ In `docs/archi/code-structure.md`, under "Deltas", add one bullet:
   truth for the one IDENTITY table; no DAL duplicated across slices.
 ```
 
-- [ ] **Step 3: Run the entire suite with the gate**
+- [x] **Step 3: Run the entire suite with the gate**
 
 Run: `.venv/bin/python -m pytest -q`
 Expected: ALL PASS; coverage ≥ 90% on the scoped modules. If a branch is uncovered, add the missing focused test before proceeding (the gate is the comfort mechanism).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add pyproject.toml docs/archi/code-structure.md

@@ -52,6 +52,6 @@ ignore_missing_imports = true
 source = ["conduit"]
 
 [tool.pytest.ini_options]
-addopts = "-ra --strict-markers"
+addopts = "-ra --strict-markers --cov=conduit.public --cov=conduit.supervisor --cov=conduit.core --cov=conduit.shared.models --cov-fail-under=90 --cov-report=term-missing"
 asyncio_mode = "auto"
 testpaths = ["tests"]
