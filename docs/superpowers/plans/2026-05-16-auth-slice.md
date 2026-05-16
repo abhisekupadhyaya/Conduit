@@ -889,7 +889,7 @@ git commit -m "feat(dal): account persistence (public-owned)"
 - Create: `backend/conduit/supervisor/services/accounts.py`
 - Test: `backend/tests/services/test_accounts.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/services/test_accounts.py`:
 
@@ -945,12 +945,12 @@ async def test_update_lockout_guards(db):
     assert sup2.status == "disabled"
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/services/test_accounts.py -q`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `conduit/supervisor/services/accounts.py`:
 
@@ -1026,12 +1026,12 @@ async def update_account(s: AsyncSession, actor: Actor,
     return acc
 ```
 
-- [ ] **Step 4: Run it, expect pass**
+- [x] **Step 4: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/services/test_accounts.py -q`
 Expected: PASS (2 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/supervisor/services/accounts.py tests/services/test_accounts.py
