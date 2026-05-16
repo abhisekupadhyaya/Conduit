@@ -1870,7 +1870,7 @@ git commit -m "style: pure-monochrome (drop stray dark sidebar indigo)"
 
 **Files:** Create the six primitives.
 
-- [ ] **Step 1: `page-header.tsx`**
+- [x] **Step 1: `page-header.tsx`**
 
 Create `src/components/layout/page-header.tsx`:
 
@@ -1894,7 +1894,7 @@ export function PageHeader({
 }
 ```
 
-- [ ] **Step 2: `empty-state.tsx` and `error-state.tsx`**
+- [x] **Step 2: `empty-state.tsx` and `error-state.tsx`**
 
 Create `src/components/common/empty-state.tsx`:
 
@@ -1933,7 +1933,7 @@ export function ErrorState({
 }
 ```
 
-- [ ] **Step 3: `status-badge.tsx` + `role-badge.tsx`**
+- [x] **Step 3: `status-badge.tsx` + `role-badge.tsx`**
 
 Create `src/components/common/status-badge.tsx`:
 
@@ -1959,7 +1959,7 @@ export function RoleBadge({ role }: { role: string }) {
 }
 ```
 
-- [ ] **Step 4: `confirm.tsx`**
+- [x] **Step 4: `confirm.tsx`**
 
 Create `src/components/common/confirm.tsx`:
 
@@ -2001,7 +2001,7 @@ export function Confirm({
 }
 ```
 
-- [ ] **Step 5: `data-table-shell.tsx`**
+- [x] **Step 5: `data-table-shell.tsx`**
 
 Create `src/components/common/data-table-shell.tsx`:
 
@@ -2053,7 +2053,7 @@ export function DataTableShell({
 }
 ```
 
-- [ ] **Step 6: Typecheck + commit**
+- [x] **Step 6: Typecheck + commit**
 
 ```bash
 npm run build
