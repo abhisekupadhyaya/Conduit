@@ -328,15 +328,55 @@ ambient fields on `/auth/me` per §6.
 
 ## 9. Frontend — hooks & pages
 
-Reuse the auth slice's conventions and uniformity layer. All API access via
-TanStack Query in `shell/supervisor/hooks/`; relocation/checkout are
-mutations that invalidate `['stays']`.
+Reuse the auth slice's conventions and uniformity layer: TanStack Query
+modules in `shell/<portal>/hooks/`, `lib/api-client.ts` with
+`credentials:"include"` + centralized 401→logout, array query keys,
+mutations invalidate by key prefix.
 
-- `shell/supervisor/hooks/use-sections.ts`, `use-rooms.ts`, `use-stays.ts` —
-  query + mutation modules (mirroring auth's `use-accounts.ts` shape).
-- The guest shell consumes the extended `/auth/me` via the existing
-  `auth-provider` context — **no new guest data fetching** (ambient is part
-  of the session, one source of truth).
+**Guest portal gets NO hook.** The guest's `{room, section, stay}` arrives
+on the extended `/auth/me`, consumed by `auth-provider` **context** — the
+session is one source of truth (context), never the query cache. The guest
+shell reads ambient from `useAuth()`. *Honest consequence (D42/AD7 posture,
+stated not hidden):* a relocated guest sees the new room on their **next
+`/auth/me`** (`refreshUser()`, app refocus, or reload), not live — no guest
+polling this slice; live reflection is a later spine/polling concern.
+
+All hooks are **supervisor-portal only**, in `shell/supervisor/hooks/`
+(mirroring auth's `use-accounts.ts` shape):
+
+- `use-sections.ts` — `useSections()` → `['sections']`;
+  `useCreateSection()`; `useRenameSection()`.
+- `use-rooms.ts` — `useRooms(sectionId?)` → `['rooms', {sectionId}]`;
+  `useCreateRoom()`; `useUpdateRoom()` (label and/or section reassign).
+- `use-stays.ts` — `useStays(status?, guestId?)` →
+  `['stays', {status, guestId}]`; `useCreateStay()` (check-in);
+  `useRelocateStay()`; `useCheckoutStay()`; `useUpdateStay()` (benign dates).
+
+**Response shapes embed derived labels** (`RoomOut.section_label`,
+`StayOut.room_label`/`section_label`) — simple components, no client-side
+joins, consistent with auth's `AccountOut`. The cost is **invalidation
+fan-out**, centralized in one `invalidateBindingQueries(qc, keys)` helper so
+no mutation hand-rolls it:
+
+| Mutation | Invalidates |
+|---|---|
+| create / rename section | `['sections']`, `['rooms']`, `['stays']` |
+| create / update room (incl. section reassign) | `['rooms']`, `['sections']` (room_count), `['stays']` (derived `section_label`) |
+| create stay / relocate / checkout / update dates | `['stays']` |
+
+- **No optimistic mutations this slice** (auth used optimism for
+  enable/disable). Relocate/checkout emit events + re-resolve ambient;
+  create/rename touch derived labels — all **await + toast**.
+- **Not polled** — config/identity, not operational: default `staleTime` +
+  refetch-on-focus, **no `refetchInterval`** (matches auth's account-list
+  call; deliberately contrasts AD7's polled decision queue).
+- The **check-in dialog composes existing hooks** (same-portal reuse,
+  allowed): auth's `useAccounts('guest')` + `useStays('active')`, computing
+  "guests with no active stay" client-side for the picker.
+- Same responsive / async / skeleton bar as the auth slice (supervisor
+  desktop-first, `data-table-shell` reflows to cards `< md`, ~180ms skeleton
+  delay, skeleton on first load only + keep-previous-data on filter change).
+
 - **Sections page** — `PageHeader` + `data-table-shell`: section label ·
   room count · `⋯` (Rename). "Add section" `Dialog`. Rooms managed inline
   here (create / reassign room → section), same primitives — no separate
@@ -346,10 +386,6 @@ mutations that invalidate `['stays']`.
   confirm `Dialog` with room picker; **Check out** → `confirm`). "Check in
   guest" `Dialog` (guest picker filtered to guests with no active stay, room
   picker, dates).
-- Same responsive / async / skeleton bar as the auth slice (supervisor
-  desktop-first, tables reflow to cards `< md`). Relocation/checkout are
-  **await + toast**, not optimistic (they emit events and re-resolve
-  ambient).
 - New routes wired in `App.tsx` + `supervisorNav`.
 
 ## 10. Test bench
