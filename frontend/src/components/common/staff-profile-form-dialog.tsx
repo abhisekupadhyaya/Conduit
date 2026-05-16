@@ -33,6 +33,7 @@ export type StaffProfileEdit = {
 
 export function StaffProfileFormDialog({
   edit, accountId, displayName, onCreate, onPatch,
+  open: openProp, onOpenChange,
 }: {
   // Edit path: an existing profile on a servicer account.
   edit?: StaffProfileEdit
@@ -44,8 +45,20 @@ export function StaffProfileFormDialog({
   onPatch?: (v: {
     account_id: string; staff_class?: string; status?: string
   }) => Promise<unknown>
+  // Controlled mode: when `open` is provided the internal trigger is NOT
+  // rendered and the caller owns open state. Required when used from a
+  // DropdownMenuItem — a self-triggering dialog inside a menu item gets
+  // unmounted when the menu closes on select (the flash-then-vanish bug).
+  open?: boolean
+  onOpenChange?: (o: boolean) => void
 }) {
-  const [open, setOpen] = useState(false)
+  const [openState, setOpenState] = useState(false)
+  const controlled = openProp !== undefined
+  const open = controlled ? openProp : openState
+  const setOpen = (o: boolean) => {
+    if (controlled) onOpenChange?.(o)
+    else setOpenState(o)
+  }
   const isEdit = !!edit
   const acct = edit?.account_id ?? accountId
   const name = edit?.display_name ?? displayName
@@ -79,11 +92,13 @@ export function StaffProfileFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {isEdit
-          ? <Button variant="ghost" size="sm" className="w-full justify-start font-normal">Edit profile</Button>
-          : <Button size="sm">Create profile</Button>}
-      </DialogTrigger>
+      {!controlled && (
+        <DialogTrigger asChild>
+          {isEdit
+            ? <Button variant="ghost" size="sm" className="w-full justify-start font-normal">Edit profile</Button>
+            : <Button size="sm">Create profile</Button>}
+        </DialogTrigger>
+      )}
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>

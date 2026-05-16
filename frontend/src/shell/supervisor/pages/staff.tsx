@@ -64,6 +64,7 @@ export function StaffPage() {
   const patchProfile = usePatchProfile()
   const setSkills = useSetSkills()
   const [confirm, setConfirm] = useState<StaffRow | null>(null)
+  const [editFor, setEditFor] = useState<StaffRow | null>(null)
   const [skillsFor, setSkillsFor] = useState<StaffRow | null>(null)
   const [draftSkills, setDraftSkills] = useState<string[]>([])
   const [savingSkills, setSavingSkills] = useState(false)
@@ -117,18 +118,8 @@ export function StaffPage() {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          <DropdownMenuItem asChild>
-            <div>
-              <StaffProfileFormDialog
-                edit={{
-                  account_id: r.account_id,
-                  display_name: r.display_name,
-                  staff_class: r.profile.staff_class,
-                  status: r.profile.status,
-                }}
-                onPatch={(v) => patchProfile.mutateAsync(v)}
-              />
-            </div>
+          <DropdownMenuItem onClick={() => setEditFor(r)}>
+            Edit profile
           </DropdownMenuItem>
           <DropdownMenuItem onClick={() => openSkills(r)}>
             Edit skills
@@ -224,6 +215,20 @@ export function StaffPage() {
           </div>
         ))}
       />
+      {editFor?.profile && (
+        <StaffProfileFormDialog
+          key={editFor.account_id}
+          edit={{
+            account_id: editFor.account_id,
+            display_name: editFor.display_name,
+            staff_class: editFor.profile.staff_class,
+            status: editFor.profile.status,
+          }}
+          onPatch={(v) => patchProfile.mutateAsync(v)}
+          open={editFor !== null}
+          onOpenChange={(o) => { if (!o) setEditFor(null) }}
+        />
+      )}
       <Confirm
         open={confirm !== null}
         onOpenChange={(o) => !o && setConfirm(null)}
