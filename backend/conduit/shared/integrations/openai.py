@@ -11,6 +11,7 @@ where the task allows.
 from __future__ import annotations
 
 import threading
+from typing import Literal
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -32,8 +33,8 @@ class LLMUnavailable(ConduitError):
 class _Child(BaseModel):
     text: str
     issue_code: str | None
-    fulfilment_mode: str | None
-    outcome: str
+    fulfilment_mode: Literal["dispatch", "no_dispatch"] | None
+    outcome: Literal["auto", "clarify", "flag", "no_dispatch"]
     is_problem_report: bool
 
 
@@ -94,12 +95,29 @@ def _client() -> AsyncOpenAI:
 
 
 _SYS_CLASSIFY = (
-    "Decompose the guest message into independent children; classify each to "
-    "exactly one code from the injected CATALOG (active only) or null; "
-    "fulfilment_mode from the matched code; is_problem_report only on "
-    "objective broken/not-working framing (not tone); risk triggers "
-    "(money/safety/moves/reservation change) => flag; never drop a need; "
-    "unsure => clarify or flag, never omit."
+    "Decompose the guest message into independent children. For each child, "
+    "set issue_code to exactly one code from the injected CATALOG (active "
+    "only) whose meaning matches, or null if none matches. Set "
+    "fulfilment_mode to the matched code's mode (null if no code). "
+    "Set is_problem_report true only on objective broken/not-working "
+    "framing (not tone). Set outcome by these rules, in order: "
+    "(1) money/safety/guest-move/reservation-change risk => 'flag'; "
+    "(2) no code matched, or the request is too vague to act on => "
+    "'clarify'; (3) matched code fulfilment_mode == 'no_dispatch' => "
+    "'no_dispatch'; (4) matched code fulfilment_mode == 'dispatch' => "
+    "'auto'. CASUAL-CONVERSATION PRECEDENCE: if a casual-conversation "
+    "code is in CATALOG, match it for ANY social, meta, or non-service "
+    "message even when phrased as a question or a request to know "
+    "something - greetings, thanks, banter, 'how are you', 'what is "
+    "your name', 'what can you do', jokes, opinions, and general / "
+    "off-topic / world-knowledge questions not about THIS hotel or the "
+    "guest's own stay. Use INFO_* / service codes ONLY for questions "
+    "about this hotel or this guest's stay (hours, wifi, amenities, "
+    "housekeeping, the reservation). When in doubt between a casual code "
+    "and an INFO_* code for a non-hotel topic, choose the casual code "
+    "(then rule 3 applies: outcome 'no_dispatch'). "
+    "outcome MUST be exactly one of: auto, clarify, flag, "
+    "no_dispatch. Never drop a need; never omit a child."
 )
 _SYS_GROUND = (
     "Answer ONLY from CONTEXT; insufficient => grounded=false, no answer "
@@ -138,6 +156,39 @@ async def _parse_ground(model: str, content: str) -> _Ground:
     return r.output_parsed
 
 
+class _Smalltalk(BaseModel):
+    reply: str
+
+
+_SYS_SMALLTALK = (
+    "You are the hotel's friendly stay assistant. The guest sent a "
+    "casual, social, meta, or off-topic message. Hold up the small talk "
+    "naturally: reply in one or two short, warm, human sentences. You MAY "
+    "banter lightly, react, and answer harmless questions about yourself "
+    "(you're the hotel's assistant, here to help with their stay). For "
+    "anything outside this hotel or their stay (world facts, places, "
+    "trivia, advice, opinions) do NOT pretend to know or give an "
+    "authoritative answer - good-naturedly acknowledge it's outside what "
+    "you can help with and steer back to their stay. State NO hotel facts "
+    "(hours, prices, names, policies, room details) and make NO promises "
+    "or bookings. Always sound like a warm human, never a form."
+)
+
+
+@retry(
+    stop=stop_after_attempt(2),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+async def _parse_smalltalk(model: str, message: str) -> _Smalltalk:
+    r = await _client().responses.parse(
+        model=model,
+        input=[{"role": "system", "content": _SYS_SMALLTALK},
+               {"role": "user", "content": message}],
+        text_format=_Smalltalk, reasoning={"effort": "low"})
+    return r.output_parsed
+
+
 async def classify(text: str, catalog: list[dict]) -> list[dict]:
     s = get_settings()
     if _circuit_open():
@@ -169,3 +220,16 @@ async def ground(question: str, context: str) -> dict:
         raise LLMUnavailable(str(e))
     _record_success()
     return parsed.model_dump()
+
+
+async def smalltalk(message: str) -> str:
+    s = get_settings()
+    if _circuit_open():
+        raise LLMUnavailable("circuit open")
+    try:
+        parsed = await _parse_smalltalk(s.openai_model, message)
+    except Exception as e:
+        _record_failure()
+        raise LLMUnavailable(str(e))
+    _record_success()
+    return parsed.reply

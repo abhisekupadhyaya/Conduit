@@ -19,8 +19,10 @@ from conduit.guest.dal import children as cdal
 from conduit.guest.dal import requests as rdal
 from conduit.guest.dal import resolutions as resdal
 from conduit.guest.services import nodispatch
+from conduit.guest.services import smalltalk
 from conduit.shared.domain import lifecycle, triage
 from conduit.shared.events import writer
+from conduit.shared.integrations.openai import LLMUnavailable
 from conduit.supervisor.dal import issue_codes as icdal
 
 
@@ -42,7 +44,7 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
                for c in await icdal.list_codes(s, status="active")]
     try:
         triaged = await triage.classify(text, catalog)
-    except Exception:                                  # LLMUnavailable (AD11)
+    except LLMUnavailable:                             # AD11 degrade only
         triaged = [triage.TriagedChild(text=text, issue_code=None,
             outcome=triage.TriageOutcome("clarify"), uncategorized=True,
             is_problem_report=False)]
@@ -59,7 +61,9 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
         await s.flush()
         await lifecycle.transition(s, child, "triaged",
             actor_account_id=actor.id)
-        if t.outcome.value == "no_dispatch":
+        if ic is not None and ic.code == "SMALLTALK":
+            term = await smalltalk.resolve(s, child, actor.id)
+        elif t.outcome.value == "no_dispatch":
             term = await nodispatch.resolve(s, child, ambient, actor.id)
         else:
             await writer.emit_child(s, "child_parked", child.id, actor.id)
@@ -74,7 +78,7 @@ async def confirm(s: AsyncSession, actor, child_id, helpful: bool) -> dict:
     if child is None:
         raise NotFoundError("child not found")
     req = await rdal.get_request(s, child.request_id)
-    if req is None or req.guest_account_id != actor.id:
+    if req is None or str(req.guest_account_id) != str(actor.id):
         raise NotFoundError("child not found")          # ownership (no leak)
     if child.state != "answered":
         raise ConflictError("not awaiting confirmation")
@@ -83,11 +87,13 @@ async def confirm(s: AsyncSession, actor, child_id, helpful: bool) -> dict:
     if helpful:
         await lifecycle.transition(s, child, "closed",
             actor_account_id=actor.id)
-        return {"child_id": str(child.id), "terminal": "answered",
+        return {"child_id": str(child.id), "text": child.text,
+                "terminal": "answered", "closure_prompt": False,
                 "state": "closed"}
     await lifecycle.transition(s, child, "reopened",
         actor_account_id=actor.id)
     await lifecycle.transition(s, child, "concierge_queue",
         actor_account_id=actor.id)
-    return {"child_id": str(child.id), "terminal": "logged",
+    return {"child_id": str(child.id), "text": child.text,
+            "terminal": "logged", "closure_prompt": False,
             "state": "concierge_queue"}
