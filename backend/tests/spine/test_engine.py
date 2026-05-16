@@ -38,3 +38,17 @@ async def test_tick_fires_only_due_pending(db, make_child):
     await db.flush()
     fired = await runner.tick(db)
     assert fired == 1   # only the past one
+
+
+from conduit.shared.engine import sweeper
+
+
+@pytest.mark.asyncio
+async def test_sweep_flags_overdue_unfired(db, make_child):
+    child = await make_child(db)
+    from conduit.shared.engine import timers
+    await timers.arm(db, "child_id", child.id, timers.TimerType.ACCEPT_WINDOW,
+                     fire_at=dt.datetime.now(dt.UTC) - dt.timedelta(hours=1))
+    await db.flush()
+    overdue = await sweeper.sweep(db)
+    assert overdue >= 1

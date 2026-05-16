@@ -7,11 +7,28 @@ the safety net for "nothing is silently lost" (archi infrastructure §Timers).
 """
 from __future__ import annotations
 
+import logging
 
-async def sweep() -> None:
-    """Detect overdue/orphaned timers and states; emit metric + alarm.
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
-    Implemented alongside the `timer` model. Failed transitions go to a
-    failed-transitions record + alarm — never silent.
+log = logging.getLogger("conduit.engine")
+
+
+async def sweep(s: AsyncSession) -> int:
+    """Detect overdue/unfired timers; emit metric + alarm — never mutate.
+
+    The slower reconciliation watchdog (AD5): a pure read. Uses DB `now()`
+    as the only time source (AD5, never the host clock). Emits the
+    "age of oldest unfired timer" metric via the engine logger (same path
+    runner.py uses). Returns the overdue count; mutates no state — firing
+    and dead-lettering remain runner.tick's job.
     """
-    raise NotImplementedError
+    count, oldest = (await s.execute(text(
+        "SELECT count(*), min(fire_at) FROM timer "
+        "WHERE state='pending' AND fire_at < now()"))).one()
+    if count:
+        age = (await s.execute(text(
+            "SELECT now() - :oldest"), {"oldest": oldest})).scalar_one()
+        log.warning("age of oldest unfired timer: %s (overdue=%d)", age, count)
+    return int(count)
