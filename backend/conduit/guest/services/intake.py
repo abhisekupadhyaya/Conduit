@@ -87,11 +87,13 @@ async def confirm(s: AsyncSession, actor, child_id, helpful: bool) -> dict:
     if helpful:
         await lifecycle.transition(s, child, "closed",
             actor_account_id=actor.id)
-        return {"child_id": str(child.id), "terminal": "answered",
+        return {"child_id": str(child.id), "text": child.text,
+                "terminal": "answered", "closure_prompt": False,
                 "state": "closed"}
     await lifecycle.transition(s, child, "reopened",
         actor_account_id=actor.id)
     await lifecycle.transition(s, child, "concierge_queue",
         actor_account_id=actor.id)
-    return {"child_id": str(child.id), "terminal": "logged",
+    return {"child_id": str(child.id), "text": child.text,
+            "terminal": "logged", "closure_prompt": False,
             "state": "concierge_queue"}
