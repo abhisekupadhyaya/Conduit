@@ -78,3 +78,17 @@ def test_child_state_check_widened():
 
 def test_issue_code_sla_fk():
     assert "sla_preset_id" in {c.name for c in inspect(IssueCode).columns}
+
+
+from conduit.shared.models import Event
+
+def test_event_type_extended():
+    ck = next(c for c in Event.__table__.constraints
+              if getattr(c, "name", "") == "ck_event_type")
+    txt = str(ck.sqltext)
+    for t in ("work_order_created","work_order_completed","child_routed",
+              "child_closed_confirmed","escalation_opened","escalation_resolved",
+              "recommendation_created","glitch_opened","glitch_closed",
+              "cross_dept_notified","timer_fired","sla_preset_created",
+              "escalation_ladder_created"):
+        assert t in txt
