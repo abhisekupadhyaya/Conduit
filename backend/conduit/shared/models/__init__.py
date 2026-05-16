@@ -14,13 +14,16 @@ from __future__ import annotations
 
 from conduit.shared.db import Base
 from conduit.shared.models.account import Account
-from conduit.shared.models.property import Property
-from conduit.shared.models.section import Section
-from conduit.shared.models.room import Room
-from conduit.shared.models.stay import Stay
 from conduit.shared.models.event import (
-    Event, EventStayCreated, EventStayEnded, EventGuestRelocated,
+    Event,
+    EventGuestRelocated,
+    EventStayCreated,
+    EventStayEnded,
 )
+from conduit.shared.models.property import Property
+from conduit.shared.models.room import Room
+from conduit.shared.models.section import Section
+from conduit.shared.models.stay import Stay
 
 __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "Event", "EventStayCreated", "EventStayEnded",

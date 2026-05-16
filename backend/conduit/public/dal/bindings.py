@@ -1,8 +1,11 @@
 # conduit/public/dal/bindings.py
 from __future__ import annotations
+
 import uuid
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from conduit.shared.models.room import Room
 from conduit.shared.models.section import Section
 from conduit.shared.models.stay import Stay

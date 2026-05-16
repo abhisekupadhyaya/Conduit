@@ -1,9 +1,12 @@
 # conduit/supervisor/dal/stays.py
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from conduit.shared.models.stay import Stay
 
 

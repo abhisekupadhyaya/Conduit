@@ -1,9 +1,15 @@
 # conduit/supervisor/dal/events.py
 from __future__ import annotations
+
 import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from conduit.shared.models.event import (
-    Event, EventGuestRelocated, EventStayCreated, EventStayEnded,
+    Event,
+    EventGuestRelocated,
+    EventStayCreated,
+    EventStayEnded,
 )
 
 

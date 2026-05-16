@@ -1,9 +1,13 @@
 # conduit/supervisor/services/rooms.py
 from __future__ import annotations
+
 import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from conduit.core.exceptions import ConflictError, NotFoundError, ValidationError
-from conduit.supervisor.dal import rooms as dal, sections as sdal
+from conduit.supervisor.dal import rooms as dal
+from conduit.supervisor.dal import sections as sdal
 
 
 async def _require_section(s, section_id):

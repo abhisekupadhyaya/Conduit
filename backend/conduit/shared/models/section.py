@@ -1,9 +1,13 @@
 # conduit/shared/models/section.py
 from __future__ import annotations
-import datetime as dt, uuid
+
+import datetime as dt
+import uuid
+
 from sqlalchemy import DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
+
 from conduit.shared.db import Base
 
 

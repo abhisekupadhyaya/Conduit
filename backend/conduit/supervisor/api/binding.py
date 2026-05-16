@@ -1,19 +1,36 @@
 # conduit/supervisor/api/binding.py
 from __future__ import annotations
+
 import uuid
+
 from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from conduit.core.deps import Actor, db_session, require_roles
 from conduit.shared.models.account import Account
 from conduit.shared.models.property import Property
-from conduit.supervisor.dal import rooms as rdal, sections as sdal
+from conduit.supervisor.dal import rooms as rdal
+from conduit.supervisor.dal import sections as sdal
 from conduit.supervisor.schemas.binding import (
-    RelocateIn, RoomCreate, RoomOut, RoomUpdate, SectionCreate, SectionOut,
-    StayCreate, StayOut, StayUpdate,
+    RelocateIn,
+    RoomCreate,
+    RoomOut,
+    RoomUpdate,
+    SectionCreate,
+    SectionOut,
+    StayCreate,
+    StayOut,
+    StayUpdate,
 )
 from conduit.supervisor.services import (
-    rooms as rsvc, sections as ssvc, stays as stsvc,
+    rooms as rsvc,
+)
+from conduit.supervisor.services import (
+    sections as ssvc,
+)
+from conduit.supervisor.services import (
+    stays as stsvc,
 )
 
 router = APIRouter(tags=["supervisor-binding"])

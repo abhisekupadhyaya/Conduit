@@ -1,11 +1,16 @@
 # conduit/supervisor/services/stays.py
 from __future__ import annotations
+
 import uuid
 from datetime import datetime
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from conduit.core.exceptions import ConflictError, NotFoundError, ValidationError
 from conduit.shared.models.account import Account
-from conduit.supervisor.dal import stays as dal, rooms as rdal, events as edal
+from conduit.supervisor.dal import events as edal
+from conduit.supervisor.dal import rooms as rdal
+from conduit.supervisor.dal import stays as dal
 
 
 def _actor_id(actor) -> uuid.UUID | None:

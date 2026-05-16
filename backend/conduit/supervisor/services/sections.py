@@ -1,7 +1,10 @@
 # conduit/supervisor/services/sections.py
 from __future__ import annotations
+
 import uuid
+
 from sqlalchemy.ext.asyncio import AsyncSession
+
 from conduit.core.exceptions import ConflictError, NotFoundError
 from conduit.supervisor.dal import sections as dal
 
