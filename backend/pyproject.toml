@@ -13,6 +13,7 @@ dependencies = [
   "pydantic-settings>=2.6",
   "pyjwt>=2.9",
   "passlib[bcrypt]>=1.7",
+  "bcrypt<4.0",  # passlib 1.7.4 cannot drive bcrypt>=4 (removed __about__; hard 72-byte raise)
   "boto3>=1.35",          # S3 / MinIO (local S3 alternative)
   "httpx>=0.27",          # OpenAI client transport
   "tenacity>=9.0",        # circuit-breaker / retry around the LLM (AD11)

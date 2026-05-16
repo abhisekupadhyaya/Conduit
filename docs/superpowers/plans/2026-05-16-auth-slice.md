@@ -272,7 +272,7 @@ git commit -m "feat(exceptions): add ConflictError(409)"
 - Modify: `backend/conduit/core/security.py`
 - Test: `backend/tests/services/test_security.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/services/test_security.py`:
 
@@ -311,12 +311,12 @@ def test_cookie_set_and_clear():
     assert ("Max-Age=0" in r2.headers["set-cookie"]) or ("expires=" in r2.headers["set-cookie"].lower())
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/services/test_security.py -q`
 Expected: FAIL — `ImportError: cannot import name 'hash_password'`.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Append to `conduit/core/security.py`:
 
@@ -360,12 +360,12 @@ def clear_session_cookie(resp: Response) -> None:
     resp.delete_cookie(key=s.cookie_name, path="/")
 ```
 
-- [ ] **Step 4: Run it, expect pass**
+- [x] **Step 4: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/services/test_security.py -q`
 Expected: PASS (3 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/core/security.py tests/services/test_security.py
