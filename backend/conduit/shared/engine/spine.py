@@ -25,19 +25,41 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.core.exceptions import ConflictError
-from conduit.shared.domain import recommendation, routing
+from conduit.shared.domain import lifecycle, recommendation, routing
 from conduit.shared.events import writer
 from conduit.shared.models import (ChildSubRequest, Escalation, IssueCode,
                                    RecApprove, RecBroadcast, RecDeny,
                                    RecExtendSla, RecReassign, RecRelocate,
                                    Recommendation, Request, Room, Roster,
                                    RosterAssignment, Section, SLAPreset,
-                                   StaffProfile, Stay)
+                                   StaffProfile, Stay, WorkOrder)
 from conduit.shared.models import EscalationLadder as _EscalationLadder
 
 # Named fallback (D9) — used ONLY when the active SLAPreset chain is genuinely
 # absent for the child's tier; never an inline magic number.
 DEFAULT_SUPERVISOR_SLA_SECONDS = 900
+
+# D1 fix: derive the C1 routing model from the child's
+# ``issue_code.routing_model`` column (D12 section-pooled vs D18
+# skill-matched). NEVER hardcode the model on the STALL path. ``'none'``
+# (no-dispatch issue codes) has no dispatch routing — fall back to the
+# skill-matched mechanism so ``routing.select`` still yields deterministically.
+_ROUTING_MODEL_BY_CODE = {
+    "section_pooled": routing.RoutingModel.SECTION_POOLED,  # D12
+    "skill_matched": routing.RoutingModel.SKILL_MATCHED,    # D18
+}
+
+# §7.4 outcome vocabulary (ck_esc_state terminal dispositions reachable from
+# ``open`` via apply_recommendation). ``hard_escalated`` is reached ONLY via
+# ``hard_escalate`` (the D21 backstop), never as a direct outcome here.
+_RESOLVE_OUTCOMES = ("approved", "edited", "overridden", "auto_proceeded")
+# The single outcome whose post-state differs from ``approved`` ONLY by
+# ``resolved_by_account_id is None`` (silence ≡ approve is STRUCTURAL).
+_AUTO_PROCEEDED = "auto_proceeded"
+_HARD_ESCALATED = "hard_escalated"
+# Outcomes that execute the STORED recommendation verbatim; the rest carry a
+# supervisor-supplied action (edited/overridden).
+_STORED_REC_OUTCOMES = ("approved", _AUTO_PROCEEDED)
 
 # Action → its thin ``rec_*`` detail row, built from ``draft.params`` (the C2
 # RecommendationDraft). Keyed by the exact ck_rec_action vocabulary.
@@ -93,6 +115,23 @@ async def _sla_for_child(s: AsyncSession, child: ChildSubRequest):
     )).scalar_one_or_none()
 
 
+async def _routing_model_for_child(s: AsyncSession,
+                                   child: ChildSubRequest):
+    """D1 FIX: derive the C1 routing model enum from the child's
+    ``issue_code.routing_model`` column (engine-local read). Maps
+    ``'section_pooled'``→D12, ``'skill_matched'``→D18; absent / ``'none'``
+    falls back to skill-matched so ``routing.select`` stays deterministic.
+    Routing is NOT re-implemented — only the model enum is selected."""
+    if child.issue_code_id is not None:
+        rm = (await s.execute(
+            sa.select(IssueCode.routing_model)
+            .where(IssueCode.id == child.issue_code_id)
+        )).scalar_one_or_none()
+        if rm in _ROUTING_MODEL_BY_CODE:
+            return _ROUTING_MODEL_BY_CODE[rm]
+    return routing.RoutingModel.SKILL_MATCHED
+
+
 async def _stall_candidates(s: AsyncSession, property_id):
     """Engine-local read of property staff as routing ``Candidate`` rows.
 
@@ -137,11 +176,15 @@ async def _assemble_context(s: AsyncSession, child: ChildSubRequest,
     if trigger is EscalationTrigger.STALL:
         # §7.4: reassign target = C1 routing.select EXCLUDING the stalled
         # assignee. routing OWNS the rule; the spine only excludes + reads.
+        # D1 FIX: the routing MODEL is DERIVED from the child's
+        # issue_code.routing_model (D12 section-pooled vs D18 skill-matched),
+        # NEVER hardcoded. The spine only selects the enum and calls C1.
         stalled = ctx.get("stalled_account_id")
         exclude = {stalled} if stalled is not None else set()
+        model = await _routing_model_for_child(s, child)
         now = (await s.execute(sa.select(sa.func.now()))).scalar_one()
         sel = routing.select(
-            model=routing.RoutingModel.SKILL_MATCHED,
+            model=model,
             candidates=await _stall_candidates(s, property_id),
             now=now, exclude=exclude)
         return {"reassign_target": sel.assigned_id,
@@ -232,7 +275,201 @@ async def open_escalation(s: AsyncSession, child: ChildSubRequest,
     return esc
 
 
-def auto_proceed(escalation_id: str) -> None:
-    """Supervisor silent past SLA → proceed on the recommendation (D9),
-    unless the D21 bound is hit → hard-escalate the duty manager."""
-    raise NotImplementedError
+async def _child_for_escalation(s: AsyncSession,
+                                esc: Escalation) -> ChildSubRequest:
+    return (await s.execute(
+        sa.select(ChildSubRequest)
+        .where(ChildSubRequest.id == esc.child_id)
+    )).scalar_one()
+
+
+async def _active_ladder_for_escalation(s: AsyncSession, esc: Escalation,
+                                        child: ChildSubRequest):
+    """The property's active EscalationLadder (D21 — the bound lives here)."""
+    property_id = await _property_id_for_child(s, child)
+    if property_id is None:
+        raise ConflictError(
+            f"escalation {esc.id} child has no resolvable property")
+    ladder = (await s.execute(
+        sa.select(_EscalationLadder).where(
+            _EscalationLadder.property_id == property_id,
+            _EscalationLadder.status == "active")
+    )).scalar_one_or_none()
+    if ladder is None:
+        raise ConflictError(
+            f"no active EscalationLadder for property {property_id}")
+    return ladder
+
+
+async def _resolved_action(s: AsyncSession, esc: Escalation, outcome: str,
+                           action, payload):
+    """The typed (action, params) to execute.
+
+    approved / auto_proceeded → the STORED Recommendation + its ``rec_*``
+    detail, VERBATIM (silence ≡ approve is structural — same source).
+    edited / overridden → the supervisor-SUPPLIED action + payload.
+    """
+    if outcome in _STORED_REC_OUTCOMES:
+        rec = (await s.execute(
+            sa.select(Recommendation)
+            .where(Recommendation.escalation_id == esc.id)
+        )).scalar_one()
+        act = rec.action
+        if act == "reassign":
+            d = (await s.execute(sa.select(RecReassign).where(
+                RecReassign.recommendation_escalation_id == esc.id)
+            )).scalar_one()
+            return act, {"target_account_id": d.target_account_id}
+        if act == "broadcast":
+            return act, {}
+        if act == "relocate":
+            d = (await s.execute(sa.select(RecRelocate).where(
+                RecRelocate.recommendation_escalation_id == esc.id)
+            )).scalar_one()
+            return act, {"target_room_id": d.target_room_id}
+        if act == "extend_sla":
+            d = (await s.execute(sa.select(RecExtendSla).where(
+                RecExtendSla.recommendation_escalation_id == esc.id)
+            )).scalar_one()
+            return act, {"extend_seconds": d.extend_seconds}
+        return act, {}  # approve / deny — no params
+    # edited / overridden — the supervisor supplies the typed action.
+    if action is None:
+        raise ConflictError(
+            f"outcome {outcome!r} requires a supervisor-supplied action")
+    return action, dict(payload or {})
+
+
+async def _execute_action(s: AsyncSession, esc: Escalation,
+                          child: ChildSubRequest, act: str, params: dict,
+                          actor_id, ctx: dict) -> None:
+    """Effect the typed action — ONLY via the C4 orchestrator / timers /
+    the real relocate_stay seam. Routing/recommendation/re-binding are NOT
+    re-implemented here.
+
+    reassign/broadcast → mutate the linked WorkOrder's assignee IN PLACE
+    keeping the accountable owner UNCHANGED (D12/D18 — the owner stays
+    accountable to Closed/SLA regardless of who later services). The C4
+    machine has no ``*->reassign`` WorkOrder edge (assignee swap is not a
+    state change); per the task this follows the C4 entity-mutation pattern
+    (``transition`` mutates subject fields in place) — engine-local, the
+    single escalation_resolved event still flows through C4 ``transition``.
+    relocate → the escalation→relocate C4 hop (real ``relocate_stay`` +
+    glitch close). extend_sla → re-arm a fresh timer. approve/deny → the
+    mutation gate seam.
+    """
+    if act in ("reassign", "broadcast"):
+        wo = (await s.execute(
+            sa.select(WorkOrder).where(WorkOrder.child_id == child.id)
+        )).scalar_one_or_none()
+        if wo is None:
+            return
+        target = params.get("target_account_id")
+        # reassign → in-place assignee swap to the routed target (the stored
+        # Recommendation already captured C1 routing.select EXCLUDING the
+        # stalled assignee at open time; edited/overridden carry the
+        # supervisor target). broadcast → clear the direct assignment; the
+        # accountable owner is UNCHANGED in BOTH cases.
+        wo.assigned_servicer_id = target if act == "reassign" else None
+        s.add(wo)
+        return
+
+    if act == "extend_sla":
+        secs = params.get("extend_seconds")
+        if secs is None:
+            sla = await _sla_for_child(s, child)
+            secs = (sla.fulfilment_sla_seconds if sla is not None
+                    else DEFAULT_SUPERVISOR_SLA_SECONDS)
+        now = (await s.execute(sa.select(sa.func.now()))).scalar_one()
+        from conduit.shared.engine.timers import TimerType, arm
+        await arm(s, "escalation_id", esc.id, TimerType.SUPERVISOR_SLA,
+                  fire_at=now + dt.timedelta(seconds=int(secs)))
+        return
+
+    # relocate is effected by the C4 escalation→relocate hop (real
+    # relocate_stay + glitch close) driven by the single escalation
+    # transition below — NOTHING to do here.
+    # approve / deny — the reservation-mutation gate. No built mutation-gate
+    # surface exists in this slice; the C4 escalation transition records the
+    # disposition (one event). Spec-faithful seam — see REPORT.
+    return
+
+
+async def apply_recommendation(s: AsyncSession, escalation: Escalation, *,
+                               outcome: str, action=None, payload=None,
+                               actor=None, **ctx) -> Escalation:
+    """THE single executor (Spec §7.4).
+
+    ``outcome ∈ {approved, edited, overridden, auto_proceeded}``. BOTH the
+    human path (supervisor/services/decisions.resolve) and the timer
+    auto-proceed (engine/runner) call this — silence ≡ approve is STRUCTURAL:
+    the auto_proceeded post-state is IDENTICAL to approved EXCEPT
+    ``resolved_by_account_id is None``. No behaviour branches on the outcome
+    otherwise.
+
+    Executes the typed action via the C4 orchestrator / timers / the real
+    relocate_stay seam, transitions the Escalation to the outcome state
+    through C4 ``lifecycle.transition`` (exactly ONE ``escalation_resolved``
+    event), sets the resolver + ``resolved_at``, and increments
+    ``cycle_count``. D21: if ``cycle_count + 1 >= active ladder.n_cycle_bound``
+    on the silent auto-proceed path → ``hard_escalate`` INSTEAD (auto-proceed
+    disabled at/after the floor). One transaction, the caller's session, NO
+    commit.
+    """
+    if outcome not in _RESOLVE_OUTCOMES:
+        raise ConflictError(f"unknown apply_recommendation outcome {outcome!r}")
+
+    actor_id = getattr(actor, "id", actor)
+
+    child = await _child_for_escalation(s, escalation)
+    ladder = await _active_ladder_for_escalation(s, escalation, child)
+
+    # D21 bound — auto-proceed (the silent path) is DISABLED at/after the
+    # floor: if this cycle would reach the bound, hard-escalate INSTEAD of
+    # executing the action. Human decisions (approved/edited/overridden) are
+    # explicit and proceed; only the silence path is bounded (D21).
+    if (outcome == _AUTO_PROCEEDED
+            and escalation.cycle_count + 1 >= ladder.n_cycle_bound):
+        return await hard_escalate(s, escalation)
+
+    act, params = await _resolved_action(
+        s, escalation, outcome, action, payload)
+
+    # Effect the typed action FIRST (reassign/broadcast/extend_sla); relocate
+    # is effected by the single C4 escalation transition's hop below.
+    await _execute_action(s, escalation, child, act, params, actor_id, ctx)
+
+    resolver = None if outcome == _AUTO_PROCEEDED else actor_id
+
+    # The ONE escalation_resolved event + (for relocate) the C4
+    # escalation→relocate hop, through the single writer path. Pass the
+    # resolved action + relocate ctx so C4's hop runs the real relocate_stay.
+    await lifecycle.transition(
+        s, escalation, outcome, actor_account_id=resolver,
+        action=act, **ctx)
+
+    escalation.resolved_by_account_id = resolver
+    escalation.resolved_at = (
+        await s.execute(sa.select(sa.func.now()))).scalar_one()
+    escalation.cycle_count = escalation.cycle_count + 1
+    s.add(escalation)
+    return escalation
+
+
+async def hard_escalate(s: AsyncSession, escalation: Escalation) -> Escalation:
+    """D21 backstop: surface to the non-time-boxed duty manager.
+
+    Transitions the Escalation → ``hard_escalated`` via C4
+    ``lifecycle.transition`` (exactly ONE ``escalation_resolved`` event), with
+    NO recommendation action executed and NO out-of-band side effect
+    (in-portal only). Auto-proceed is disabled past this point (the state is
+    terminal in the escalation machine). One transaction, caller's session,
+    NO commit.
+    """
+    await lifecycle.transition(s, escalation, _HARD_ESCALATED,
+                               actor_account_id=None)
+    escalation.resolved_by_account_id = None
+    escalation.resolved_at = (
+        await s.execute(sa.select(sa.func.now()))).scalar_one()
+    s.add(escalation)
+    return escalation
