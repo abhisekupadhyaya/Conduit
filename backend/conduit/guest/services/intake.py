@@ -21,6 +21,7 @@ from conduit.guest.dal import resolutions as resdal
 from conduit.guest.services import nodispatch
 from conduit.shared.domain import lifecycle, triage
 from conduit.shared.events import writer
+from conduit.shared.integrations.openai import LLMUnavailable
 from conduit.supervisor.dal import issue_codes as icdal
 
 
@@ -42,7 +43,7 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
                for c in await icdal.list_codes(s, status="active")]
     try:
         triaged = await triage.classify(text, catalog)
-    except Exception:                                  # LLMUnavailable (AD11)
+    except LLMUnavailable:                             # AD11 degrade only
         triaged = [triage.TriagedChild(text=text, issue_code=None,
             outcome=triage.TriageOutcome("clarify"), uncategorized=True,
             is_problem_report=False)]

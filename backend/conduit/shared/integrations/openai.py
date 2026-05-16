@@ -11,6 +11,7 @@ where the task allows.
 from __future__ import annotations
 
 import threading
+from typing import Literal
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel
@@ -32,8 +33,8 @@ class LLMUnavailable(ConduitError):
 class _Child(BaseModel):
     text: str
     issue_code: str | None
-    fulfilment_mode: str | None
-    outcome: str
+    fulfilment_mode: Literal["dispatch", "no_dispatch"] | None
+    outcome: Literal["auto", "clarify", "flag", "no_dispatch"]
     is_problem_report: bool
 
 
@@ -94,12 +95,18 @@ def _client() -> AsyncOpenAI:
 
 
 _SYS_CLASSIFY = (
-    "Decompose the guest message into independent children; classify each to "
-    "exactly one code from the injected CATALOG (active only) or null; "
-    "fulfilment_mode from the matched code; is_problem_report only on "
-    "objective broken/not-working framing (not tone); risk triggers "
-    "(money/safety/moves/reservation change) => flag; never drop a need; "
-    "unsure => clarify or flag, never omit."
+    "Decompose the guest message into independent children. For each child, "
+    "set issue_code to exactly one code from the injected CATALOG (active "
+    "only) whose meaning matches, or null if none matches. Set "
+    "fulfilment_mode to the matched code's mode (null if no code). "
+    "Set is_problem_report true only on objective broken/not-working "
+    "framing (not tone). Set outcome by these rules, in order: "
+    "(1) money/safety/guest-move/reservation-change risk => 'flag'; "
+    "(2) no code matched, or the request is too vague to act on => "
+    "'clarify'; (3) matched code fulfilment_mode == 'no_dispatch' => "
+    "'no_dispatch'; (4) matched code fulfilment_mode == 'dispatch' => "
+    "'auto'. outcome MUST be exactly one of: auto, clarify, flag, "
+    "no_dispatch. Never drop a need; never omit a child."
 )
 _SYS_GROUND = (
     "Answer ONLY from CONTEXT; insufficient => grounded=false, no answer "
