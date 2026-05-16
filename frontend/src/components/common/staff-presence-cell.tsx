@@ -13,20 +13,34 @@ export function StaffPresenceCell({
   onShift: boolean
   effectiveAvailable: boolean
 }) {
+  // Read as a status, never two flags that look contradictory:
+  //  • available        → ● Available
+  //  • on shift, paused → ○ On break · on shift   (state, then context)
+  //  • off shift        → ○ Off shift   (presence is not actionable here)
   const glyph = effectiveAvailable ? "●" : "○"
-  const presenceLabel = presence.replace(/_/g, " ")
-  const shiftLabel = onShift ? "On shift" : "Off shift"
+  let primary: string
+  let context: string | null = null
+  if (effectiveAvailable) {
+    primary = "Available"
+  } else if (onShift) {
+    primary = presence.replace(/_/g, " ")
+    context = "on shift"
+  } else {
+    primary = "Off shift"
+  }
   return (
     <span
       className={
         effectiveAvailable
           ? "inline-flex items-center gap-1.5 text-sm font-medium"
-          : "inline-flex items-center gap-1.5 text-sm text-muted-foreground"
+          : "text-muted-foreground inline-flex items-center gap-1.5 text-sm"
       }
     >
       <span aria-hidden>{glyph}</span>
-      <span className="capitalize">{presenceLabel}</span>
-      <span className="text-muted-foreground">· {shiftLabel}</span>
+      <span className="capitalize">{primary}</span>
+      {context && (
+        <span className="text-muted-foreground">· {context}</span>
+      )}
     </span>
   )
 }
