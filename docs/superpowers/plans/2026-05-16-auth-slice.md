@@ -1663,7 +1663,7 @@ git commit -m "test(guards): auth-coverage, contract snapshot, no-leak, jwt inte
 - Create: `backend/conduit/seed.py`
 - Test: `backend/tests/test_seed.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/test_seed.py`:
 
@@ -1692,12 +1692,12 @@ async def test_seed_missing_env_fails_fast(db):
         await seed.run(db, username="", password="")
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/test_seed.py -q`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `conduit/seed.py`:
 
@@ -1742,12 +1742,12 @@ if __name__ == "__main__":
     asyncio.run(_main())
 ```
 
-- [ ] **Step 4: Run it, expect pass**
+- [x] **Step 4: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/test_seed.py -q`
 Expected: PASS (2 passed).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/seed.py tests/test_seed.py
