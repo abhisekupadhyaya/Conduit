@@ -16,6 +16,11 @@ class AuthUser(BaseModel):
     role: str
     username: str
     display_name: str
+    stay_id: uuid.UUID | None = None
+    room_id: uuid.UUID | None = None
+    room_label: str | None = None
+    section_id: uuid.UUID | None = None
+    section_label: str | None = None
 
 
 class SelfUpdateIn(BaseModel):

@@ -45,3 +45,19 @@ async def update_self(s: AsyncSession, acc: Account, *, status_change=None,
     s.add(acc)
     await s.flush()
     return acc
+
+
+from conduit.core.deps import Actor
+from conduit.public.dal import bindings as _bindings
+
+
+async def resolve_ambient(s: AsyncSession, actor: Actor) -> dict | None:
+    if actor.role != "guest":
+        return None
+    trio = await _bindings.get_active_binding_for_guest(s, actor.id)
+    if trio is None:
+        return None
+    stay, room, section = trio
+    return {"stay_id": stay.id, "room_id": room.id,
+            "room_label": room.label, "section_id": section.id,
+            "section_label": section.label}
