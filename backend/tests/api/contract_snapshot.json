@@ -13,6 +13,10 @@
   ],
   [
     "GET",
+    "/api/servicer/home"
+  ],
+  [
+    "GET",
     "/api/servicer/queue"
   ],
   [
@@ -37,11 +41,27 @@
   ],
   [
     "GET",
+    "/api/supervisor/rosters"
+  ],
+  [
+    "GET",
+    "/api/supervisor/rosters/{roster_id}/assignments"
+  ],
+  [
+    "GET",
     "/api/supervisor/sections"
   ],
   [
     "GET",
     "/api/supervisor/setup"
+  ],
+  [
+    "GET",
+    "/api/supervisor/staff"
+  ],
+  [
+    "GET",
+    "/api/supervisor/staff/{account_id}"
   ],
   [
     "GET",
@@ -69,7 +89,19 @@
   ],
   [
     "PATCH",
+    "/api/supervisor/rosters/{roster_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/rosters/{roster_id}/assignments/{assignment_id}"
+  ],
+  [
+    "PATCH",
     "/api/supervisor/sections/{section_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/staff/{account_id}/profile"
   ],
   [
     "PATCH",
@@ -121,7 +153,19 @@
   ],
   [
     "POST",
+    "/api/supervisor/rosters"
+  ],
+  [
+    "POST",
+    "/api/supervisor/rosters/{roster_id}/assignments"
+  ],
+  [
+    "POST",
     "/api/supervisor/sections"
+  ],
+  [
+    "POST",
+    "/api/supervisor/staff/{account_id}/profile"
   ],
   [
     "POST",
@@ -134,5 +178,13 @@
   [
     "POST",
     "/api/supervisor/stays/{stay_id}/relocate"
+  ],
+  [
+    "PUT",
+    "/api/servicer/presence"
+  ],
+  [
+    "PUT",
+    "/api/supervisor/staff/{account_id}/skills"
   ]
 ]

@@ -1,70 +1,99 @@
-import { Button } from "@/components/ui/button"
-import { PageHeader } from "@/components/layout/page-header"
-import { EmptyState } from "@/components/common/empty-state"
-import {
-  useTaskQueue,
-  useAcceptWorkOrder,
-  useEscalateWorkOrder,
-} from "@/shell/servicer/hooks/use-servicer"
+import { toast } from "sonner"
+import { Badge } from "@/components/ui/badge"
+import { Skeleton } from "@/components/ui/skeleton"
+import { ErrorState } from "@/components/common/error-state"
+import { RoleBadge } from "@/components/common/role-badge"
+import { ShiftCard } from "@/components/common/shift-card"
+import { PresenceControl } from "@/components/common/presence-control"
+import { ApiError } from "@/lib/api-client"
+import { useAuth } from "@/auth/use-auth"
+import { useServicerHome, usePresence } from "@/shell/servicer/hooks/use-servicer"
 
-// Task Queue: pushed + claimable tasks. Data via TanStack Query.
-export function ServicerQueue() {
-  const queue = useTaskQueue()
-  const accept = useAcceptWorkOrder()
-  const escalate = useEscalateWorkOrder()
+// Servicer home (spec §10) — one calm mobile-first screen: identity, the
+// derived shift card, the one presence control, one consequence line. The
+// restraint is the design. Bound to the real ServicerHomeOut.
+export function ServicerHome() {
+  const { user } = useAuth()
+  const home = useServicerHome()
+  const presence = usePresence()
 
-  const tasks = queue.data?.tasks ?? []
+  if (home.isLoading) {
+    return (
+      <div className="mx-auto max-w-md space-y-4">
+        <Skeleton className="h-7 w-48" />
+        <Skeleton className="h-6 w-32" />
+        <Skeleton className="h-20 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    )
+  }
+
+  if (home.isError || !home.data) {
+    return (
+      <div className="mx-auto max-w-md">
+        <ErrorState
+          title="Couldn’t load your home."
+          onRetry={() => home.refetch()}
+        />
+      </div>
+    )
+  }
+
+  const h = home.data
+
+  const onPresenceChange = (next: typeof h.presence) => {
+    presence.mutate(next, {
+      onError: (err) => {
+        if (err instanceof ApiError && err.status === 409) {
+          toast.error("Your shift isn’t active right now")
+        } else {
+          toast.error("Couldn’t update presence")
+        }
+        // Re-sync to the authoritative server state.
+        home.refetch()
+      },
+    })
+  }
 
   return (
-    <div className="space-y-3">
-      <PageHeader
-        title="Task Queue"
-        description="Pushed (owned) and claimable (claim-fallback) tasks, each with an accept-window and SLA countdown (D12/D23)."
+    <div className="mx-auto max-w-md space-y-5">
+      <div className="space-y-2">
+        <div className="flex items-center gap-2">
+          <h1 className="text-lg font-semibold tracking-tight">
+            {user?.name ?? "Servicer"}
+          </h1>
+          {h.profile && <RoleBadge role={h.profile.class} />}
+        </div>
+
+        {h.profile === null ? (
+          <p className="text-muted-foreground text-sm">
+            Profile pending — a supervisor will set up your class and skills.
+          </p>
+        ) : h.skills.length > 0 ? (
+          <div className="flex flex-wrap gap-1.5">
+            {h.skills.map((s) => (
+              <Badge key={s} variant="secondary">
+                {s}
+              </Badge>
+            ))}
+          </div>
+        ) : null}
+      </div>
+
+      <ShiftCard
+        currentShift={h.current_shift}
+        nextShift={h.next_shift}
       />
 
-      {queue.isLoading && (
-        <p className="text-muted-foreground text-sm">Loading queue…</p>
-      )}
-      {queue.isError && (
-        <p className="text-destructive text-sm">
-          Couldn’t load the queue. Retrying…
-        </p>
-      )}
-      {!queue.isLoading && !queue.isError && tasks.length === 0 && (
-        <EmptyState title="No tasks right now." />
-      )}
-
       <div className="space-y-2">
-        {tasks.map((t) => (
-          <div
-            key={t.workOrderId}
-            className="bg-card text-card-foreground flex items-center justify-between rounded-xl border p-3"
-          >
-            <div>
-              <div className="text-sm font-medium">{t.title}</div>
-              <div className="text-muted-foreground text-xs">
-                {t.kind} · SLA {t.slaSecondsLeft}s
-              </div>
-            </div>
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                disabled={accept.isPending}
-                onClick={() => accept.mutate(t.workOrderId)}
-              >
-                Accept
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={escalate.isPending}
-                onClick={() => escalate.mutate(t.workOrderId)}
-              >
-                Escalate
-              </Button>
-            </div>
-          </div>
-        ))}
+        <PresenceControl
+          value={h.presence}
+          locked={h.presence_locked}
+          onChange={onPresenceChange}
+        />
+        <p className="text-muted-foreground text-xs">
+          On break and off pause new task routing.
+        </p>
       </div>
     </div>
   )

@@ -7,7 +7,7 @@ import { guestNav } from "@/shell/guest/nav"
 import { servicerNav } from "@/shell/servicer/nav"
 import { supervisorNav } from "@/shell/supervisor/nav"
 import { GuestConversation } from "@/shell/guest/pages/conversation"
-import { ServicerQueue } from "@/shell/servicer"
+import { ServicerHome } from "@/shell/servicer"
 import { SupervisorHome } from "@/shell/supervisor"
 import { GuestSettings } from "@/shell/guest/settings"
 import { ServicerSettings } from "@/shell/servicer/settings"
@@ -16,6 +16,8 @@ import { ManageServicers } from "@/shell/supervisor/pages/manage-servicers"
 import { ManageGuests } from "@/shell/supervisor/pages/manage-guests"
 import { SectionsPage } from "@/shell/supervisor/pages/sections"
 import { IssueCodesPage } from "@/shell/supervisor/pages/issue-codes"
+import { StaffPage } from "@/shell/supervisor/pages/staff"
+import { RostersPage } from "@/shell/supervisor/pages/rosters"
 import { KnowledgeBasePage } from "@/shell/supervisor/pages/knowledge-base"
 import { ProvisioningPage } from "@/shell/supervisor/pages/provisioning"
 
@@ -46,7 +48,7 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<ServicerQueue />} />
+        <Route index element={<ServicerHome />} />
         <Route path="settings" element={<ServicerSettings />} />
       </Route>
 
@@ -64,6 +66,8 @@ export default function App() {
         <Route path="accounts/guests" element={<ManageGuests />} />
         <Route path="setup/sections" element={<SectionsPage />} />
         <Route path="setup/issue-codes" element={<IssueCodesPage />} />
+        <Route path="setup/staff" element={<StaffPage />} />
+        <Route path="setup/rosters" element={<RostersPage />} />
         <Route path="knowledge-base" element={<KnowledgeBasePage />} />
         <Route path="provisioning" element={<ProvisioningPage />} />
         {/* Remaining supervisor pages render here as they are built. */}
