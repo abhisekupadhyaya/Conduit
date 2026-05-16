@@ -494,7 +494,7 @@ git commit -m "feat(model): account table + metadata registration (D29, Q1 unifi
 - Create: `backend/migrations/versions/0001_account.py`
 - Test: `backend/tests/db/test_migration.py`
 
-- [ ] **Step 1: Write the failing test (uses the throwaway DB harness)**
+- [x] **Step 1: Write the failing test (uses the throwaway DB harness)**
 
 > conftest does not exist yet; this test depends on Task 6. Write it now but expect it to error until Task 6 lands; that is the TDD ordering for the DB layer.
 
@@ -525,7 +525,7 @@ async def test_account_constraints_enforced(db):
         await db.flush()
 ```
 
-- [ ] **Step 2: Generate then hand-finalize the migration**
+- [x] **Step 2: Generate then hand-finalize the migration**
 
 Run: `.venv/bin/python -m alembic revision -m "account" --rev-id 0001`
 Then replace the generated `upgrade()`/`downgrade()` in `migrations/versions/0001_account.py` with:
@@ -570,9 +570,9 @@ def downgrade() -> None:
     op.drop_table("account")
 ```
 
-- [ ] **Step 3: Defer run to Task 6** (the harness builds the schema via `alembic upgrade head`). Mark this task's test as covered-by Task 6 Step 4.
+- [x] **Step 3: Defer run to Task 6** (the harness builds the schema via `alembic upgrade head`). Mark this task's test as covered-by Task 6 Step 4.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add migrations/versions/0001_account.py tests/db/test_migration.py
