@@ -349,3 +349,186 @@ async def test_supervisor_decisions_spine(client, make_account, login, db):
     # Everything else symmetric.
     assert e_api.trigger == e_auto.trigger == "stall"
     assert e_api.resolved_at is not None and e_auto.resolved_at is not None
+
+
+# ==========================================================================
+# Task E4 — Supervisor task explorer + override (D6 god-mode, Spec §8).
+#
+# APPEND-only: the E3 tests above are preserved verbatim. This block reuses
+# the E3 seed/cookie idiom (``_seed_world`` / ``_open_stall_escalation`` /
+# the per-role ``login`` cookie chain) and proves the D6 interrupt-from-any
+# -state contract: the three override actions act from a NON-trivial mid
+# -state (an ``in_progress`` child with a routed WorkOrder + an OPEN
+# escalation + an OPEN glitch) — NOT a special bypass node, just the C4
+# guarded ``transition`` (cancel) + the established D2/D6 in-place
+# WorkOrder assignee mutation (takeover/reassign). An illegal terminal
+# transition (cancel an already-closed child) still 409s — god-mode = act
+# from any *active* state, never violate the machine.
+# ==========================================================================
+async def _mid_state_child(db, make_account, p, sec, room, ic):
+    """A child wedged mid-lifecycle: ``in_progress`` with a routed
+    WorkOrder (assignee + accountable owner), an OPEN spine Escalation, and
+    an OPEN Glitch — the worst-case "supervisor must reach in and act"
+    shape. Returns handles."""
+    from conduit.shared.models import ChildSubRequest, Glitch
+
+    h = await _open_stall_escalation(db, make_account, p, sec, room, ic)
+    gl = Glitch(child_id=h["child"].id, opened_from="problem_report",
+                state="open")
+    db.add(gl)
+    await db.flush()
+    h["glitch"] = gl
+    return h
+
+
+async def test_supervisor_children_explorer_and_override(
+    client, make_account, login, db
+):
+    p, sec, room, ic, duty = await _seed_world(db, make_account)
+    sup = await make_account("supervisor", f"sup-{uuid.uuid4().hex[:8]}", _PW)
+
+    h_get = await _mid_state_child(db, make_account, p, sec, room, ic)
+    h_to = await _mid_state_child(db, make_account, p, sec, room, ic)
+    h_re = await _mid_state_child(db, make_account, p, sec, room, ic)
+    h_ca = await _mid_state_child(db, make_account, p, sec, room, ic)
+    h_409 = await _mid_state_child(db, make_account, p, sec, room, ic)
+    # A target servicer the supervisor will reassign / hand-to.
+    tgt = await make_account("servicer", f"rt-{uuid.uuid4().hex[:8]}", _PW)
+    await db.commit()
+
+    # ---- No cookie → 401 -------------------------------------------------
+    r = await client.get("/api/supervisor/children")
+    assert r.status_code == 401, r.text
+    r = await client.post(
+        f"/api/supervisor/children/{h_to['child'].id}/takeover", json={})
+    assert r.status_code == 401, r.text
+
+    # ---- Wrong role: guest / servicer cookie → 403 -----------------------
+    g = await make_account("guest", f"wg-{uuid.uuid4().hex[:8]}", _PW)
+    await login(g.username, _PW)
+    assert (await client.get(
+        "/api/supervisor/children")).status_code == 403
+    sv = await make_account("servicer", f"ws-{uuid.uuid4().hex[:8]}", _PW)
+    await login(sv.username, _PW)
+    assert (await client.post(
+        f"/api/supervisor/children/{h_ca['child'].id}/cancel",
+        json={})).status_code == 403
+
+    # ---- GET /api/supervisor/children → 200, global (sees everything) ----
+    await login(sup.username, _PW)
+    lst = await client.get("/api/supervisor/children")
+    assert lst.status_code == 200, lst.text
+    body = lst.json()
+    by_id = {row["child_id"]: row for row in body}
+    assert str(h_get["child"].id) in by_id
+    card = by_id[str(h_get["child"].id)]
+    assert card["state"] == "in_progress"
+    assert card["work_order"]["assigned_servicer_id"] == \
+        str(h_get["stalled"].id)
+    assert card["work_order"]["accountable_owner_id"] == \
+        str(h_get["owner"].id)
+    assert card["escalation"]["state"] == "open"
+    assert card["escalation"]["trigger"] == "stall"
+    assert card["glitch"]["state"] == "open"
+    # Curated keys only — no internal leak.
+    assert set(card.keys()) == {
+        "child_id", "state", "work_order", "escalation", "glitch"}
+
+    # ---- filter param (?child_id=) narrows the global read --------------
+    one = await client.get(
+        f"/api/supervisor/children?child_id={h_get['child'].id}")
+    assert one.status_code == 200, one.text
+    obody = one.json()
+    assert {row["child_id"] for row in obody} == {str(h_get["child"].id)}
+    # filter by state
+    st = await client.get("/api/supervisor/children?state=in_progress")
+    assert st.status_code == 200, st.text
+    assert all(row["state"] == "in_progress" for row in st.json())
+    assert str(h_get["child"].id) in {r["child_id"] for r in st.json()}
+
+    # ---- POST takeover → 200, in-place assignee swap from a mid-state ----
+    # Default takeover hands the WorkOrder to the acting supervisor; the
+    # accountable owner is UNCHANGED (D12). Acts from ``in_progress``
+    # (D6 interrupt-from-any-active-state — proves it is NOT a bypass node).
+    rt = await client.post(
+        f"/api/supervisor/children/{h_to['child'].id}/takeover", json={})
+    assert rt.status_code == 200, rt.text
+    await db.commit()
+    wo_to = (await db.execute(sa.select(WorkOrder).where(
+        WorkOrder.id == h_to["wo"].id))).scalar_one()
+    assert str(wo_to.assigned_servicer_id) == str(sup.id)
+    assert str(wo_to.accountable_owner_id) == str(h_to["owner"].id)
+    c_to = (await db.execute(sa.select(type(h_to["child"])).where(
+        type(h_to["child"]).id == h_to["child"].id))).scalar_one()
+    assert c_to.state == "in_progress"  # assignee swap is NOT a state change
+
+    # takeover with an explicit target → hands to that servicer.
+    rt2 = await client.post(
+        f"/api/supervisor/children/{h_get['child'].id}/takeover",
+        json={"target_servicer_id": str(tgt.id)})
+    assert rt2.status_code == 200, rt2.text
+    await db.commit()
+    wo_get = (await db.execute(sa.select(WorkOrder).where(
+        WorkOrder.id == h_get["wo"].id))).scalar_one()
+    assert str(wo_get.assigned_servicer_id) == str(tgt.id)
+    assert str(wo_get.accountable_owner_id) == str(h_get["owner"].id)
+
+    # ---- POST reassign → 200, in-place to an explicit target ------------
+    rr = await client.post(
+        f"/api/supervisor/children/{h_re['child'].id}/reassign",
+        json={"target_servicer_id": str(tgt.id)})
+    assert rr.status_code == 200, rr.text
+    await db.commit()
+    wo_re = (await db.execute(sa.select(WorkOrder).where(
+        WorkOrder.id == h_re["wo"].id))).scalar_one()
+    assert str(wo_re.assigned_servicer_id) == str(tgt.id)
+    assert str(wo_re.accountable_owner_id) == str(h_re["owner"].id)
+
+    # ---- POST cancel → 200, child cancelled from a mid (in_progress) ----
+    from conduit.shared.models import EventChildCancelled
+
+    rc = await client.post(
+        f"/api/supervisor/children/{h_ca['child'].id}/cancel", json={})
+    assert rc.status_code == 200, rc.text
+    await db.commit()
+    c_ca = (await db.execute(sa.select(type(h_ca["child"])).where(
+        type(h_ca["child"]).id == h_ca["child"].id))).scalar_one()
+    assert c_ca.state == "cancelled"
+    # Exactly ONE child_cancelled event (the C4 single-writer path).
+    n_evt = (await db.execute(
+        sa.select(sa.func.count()).select_from(EventChildCancelled)
+        .where(EventChildCancelled.child_id == h_ca["child"].id)
+    )).scalar_one()
+    assert n_evt == 1
+
+    # ---- no-op: cancel an already-closed/terminal child → 409 -----------
+    # First cancel h_409, then cancel it AGAIN: the second is an illegal
+    # transition (cancelled has no outgoing edge) — god-mode does NOT
+    # bypass the machine's legality.
+    assert (await client.post(
+        f"/api/supervisor/children/{h_409['child'].id}/cancel",
+        json={})).status_code == 200
+    await db.commit()
+    again = await client.post(
+        f"/api/supervisor/children/{h_409['child'].id}/cancel", json={})
+    assert again.status_code == 409, again.text
+
+    # ---- unknown child → 404 --------------------------------------------
+    assert (await client.post(
+        f"/api/supervisor/children/{uuid.uuid4()}/takeover",
+        json={})).status_code == 404
+    assert (await client.post(
+        f"/api/supervisor/children/{uuid.uuid4()}/cancel",
+        json={})).status_code == 404
+
+    # ---- malformed body (extra="forbid") → 422 --------------------------
+    assert (await client.post(
+        f"/api/supervisor/children/{h_to['child'].id}/reassign",
+        json={"bogus": 1})).status_code == 422
+
+    # ---- DELETE any children route → 405 --------------------------------
+    assert (await client.delete(
+        "/api/supervisor/children")).status_code == 405
+    assert (await client.delete(
+        f"/api/supervisor/children/{h_to['child'].id}/takeover"
+    )).status_code == 405
