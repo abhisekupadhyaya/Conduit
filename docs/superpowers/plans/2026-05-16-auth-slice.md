@@ -2588,7 +2588,7 @@ git commit -m "feat(supervisor): manage servicers/guests (one component, role-sw
 - Create: `src/components/common/settings-view.tsx`, `src/shell/supervisor/pages/settings.tsx`, `src/shell/guest/settings.tsx`, `src/shell/servicer/settings.tsx`
 - Modify: `src/components/layout/nav-user.tsx`, `src/shell/supervisor/nav.tsx`, `src/App.tsx`
 
-- [ ] **Step 1: Shared `settings-view.tsx` (Profile + Password, optional Team)**
+- [x] **Step 1: Shared `settings-view.tsx` (Profile + Password, optional Team)**
 
 ```tsx
 import type { ReactNode } from "react"
@@ -2689,7 +2689,7 @@ export function SettingsView({ team }: { team?: ReactNode }) {
 }
 ```
 
-- [ ] **Step 2: Per-portal settings pages**
+- [x] **Step 2: Per-portal settings pages**
 
 `src/shell/guest/settings.tsx`:
 
@@ -2718,7 +2718,7 @@ export function SupervisorSettings() {
 }
 ```
 
-- [ ] **Step 3: nav-user Settings item**
+- [x] **Step 3: nav-user Settings item**
 
 In `src/components/layout/nav-user.tsx`, import `Link` from
 `react-router-dom`, `SettingsIcon` from `lucide-react`, and add — directly
@@ -2738,7 +2738,7 @@ awaited:
 
 (Relative `to="settings"` resolves under the current portal route.)
 
-- [ ] **Step 4: Routes + nav**
+- [x] **Step 4: Routes + nav**
 
 In `src/shell/supervisor/nav.tsx`, add to `items` after "Guest Provisioning":
 
@@ -2764,7 +2764,7 @@ Add nav items for the two manage pages in `supervisor/nav.tsx` under a
     { title: "Guests", url: "/supervisor/accounts/guests", icon: <UsersIcon /> },
 ```
 
-- [ ] **Step 5: Typecheck + commit**
+- [x] **Step 5: Typecheck + commit**
 
 ```bash
 npm run build

@@ -24,10 +24,12 @@ import {
 import {
   ChevronsUpDownIcon,
   LogOutIcon,
+  SettingsIcon,
   SunIcon,
   MoonIcon,
   MonitorIcon,
 } from "lucide-react"
+import { Link } from "react-router-dom"
 import { useTheme, type Theme } from "@/components/theme-provider"
 import { useAuth } from "@/auth/use-auth"
 
@@ -117,7 +119,11 @@ export function NavUser() {
               </DropdownMenuSubContent>
             </DropdownMenuSub>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={logout}>
+            <DropdownMenuItem asChild>
+              <Link to="settings"><SettingsIcon />Settings</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => { void logout() }}>
               <LogOutIcon />
               Log out
             </DropdownMenuItem>

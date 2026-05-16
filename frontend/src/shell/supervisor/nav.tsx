@@ -43,6 +43,9 @@ export const supervisorNav: NavConfig = {
       url: "/supervisor/provisioning",
       icon: <UsersIcon />,
     },
+    { title: "Servicers", url: "/supervisor/accounts/servicers", icon: <UsersIcon /> },
+    { title: "Guests", url: "/supervisor/accounts/guests", icon: <UsersIcon /> },
+    { title: "Settings", url: "/supervisor/settings", icon: <Settings2Icon /> },
     {
       title: "Analytics",
       url: "/supervisor/analytics",
