@@ -17,6 +17,7 @@ import { ManageGuests } from "@/shell/supervisor/pages/manage-guests"
 import { SectionsPage } from "@/shell/supervisor/pages/sections"
 import { IssueCodesPage } from "@/shell/supervisor/pages/issue-codes"
 import { StaffPage } from "@/shell/supervisor/pages/staff"
+import { RostersPage } from "@/shell/supervisor/pages/rosters"
 import { KnowledgeBasePage } from "@/shell/supervisor/pages/knowledge-base"
 import { ProvisioningPage } from "@/shell/supervisor/pages/provisioning"
 
@@ -66,6 +67,7 @@ export default function App() {
         <Route path="setup/sections" element={<SectionsPage />} />
         <Route path="setup/issue-codes" element={<IssueCodesPage />} />
         <Route path="setup/staff" element={<StaffPage />} />
+        <Route path="setup/rosters" element={<RostersPage />} />
         <Route path="knowledge-base" element={<KnowledgeBasePage />} />
         <Route path="provisioning" element={<ProvisioningPage />} />
         {/* Remaining supervisor pages render here as they are built. */}
