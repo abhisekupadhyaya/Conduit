@@ -10,6 +10,13 @@ from conduit.supervisor.api.setup import router as setup_router
 from conduit.supervisor.api.staff import router as staff_router
 
 router = APIRouter(prefix="/supervisor")
+# Additive compose (Resolution E / Spec §4): the E3 decisions router owns
+# the NEW ``/supervisor/decisions*`` surface (Spec §8 "Supervisor
+# decisions" / §7.4). The merged staffing/no-dispatch supervisor CONFIG
+# routers keep their distinct paths untouched — ``setup``/``accounts``/
+# ``binding``/``issue_codes``/``staff``/``rosters``/``kb`` each own a
+# disjoint path prefix. No path is shared, so NOTHING is shadowed and all
+# existing supervisor behaviour is preserved.
 router.include_router(decisions_router)
 router.include_router(setup_router)
 router.include_router(accounts_router)
