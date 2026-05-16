@@ -35,6 +35,10 @@ class ConflictError(ConduitError):
     status_code = 409
 
 
+class ValidationError(ConduitError):
+    status_code = 422
+
+
 def install_exception_handlers(app: FastAPI) -> None:
     @app.exception_handler(ConduitError)
     async def _handle(_: Request, exc: ConduitError) -> JSONResponse:
