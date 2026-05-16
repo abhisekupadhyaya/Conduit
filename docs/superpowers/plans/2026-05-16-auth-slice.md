@@ -2189,7 +2189,7 @@ git commit -m "feat(auth): real cookie-session provider + 401 logout + boot spla
 
 **Files:** Modify `src/auth/login-form.tsx`, `src/auth/login-page.tsx`
 
-- [ ] **Step 1: Replace `login-form.tsx`**
+- [x] **Step 1: Replace `login-form.tsx`**
 
 ```tsx
 import { useState } from "react"
@@ -2261,7 +2261,7 @@ export function LoginForm() {
 > catch { setErr("Incorrect username or password") }
 > ```
 
-- [ ] **Step 2: Replace `login-page.tsx`**
+- [x] **Step 2: Replace `login-page.tsx`**
 
 ```tsx
 import { Card } from "@/components/ui/card"
@@ -2281,7 +2281,7 @@ export function LoginPage() {
 }
 ```
 
-- [ ] **Step 3: Typecheck**
+- [x] **Step 3: Typecheck**
 
 ```bash
 npm run build
@@ -2289,7 +2289,7 @@ npm run build
 
 Expected: build succeeds (ensure the `onSubmit` final body from Step 1's fix is applied — no stray `fetch`).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/auth/login-form.tsx src/auth/login-page.tsx
