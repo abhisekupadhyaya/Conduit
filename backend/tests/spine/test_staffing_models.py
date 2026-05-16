@@ -16,14 +16,17 @@ def test_staffing_models_registered():
 
 
 import subprocess
+import sys
+from pathlib import Path
 
 def test_migration_round_trip():
-    # up to head, then one step down, then back up — must not error
-    base = "/workspace/Conduit-staffing/backend"
-    env = {"PATH": "/usr/bin:/bin"}
+    # up to head, then one step down, then back up — must not error.
+    # Resolve the backend dir from this test file's location so the round-trip
+    # runs from any worktree (inherited test hardcoded a sibling dev path).
+    base = Path(__file__).resolve().parents[2]
     for args in (["upgrade", "head"], ["downgrade", "-1"], ["upgrade", "head"]):
         r = subprocess.run(
-            [f"{base}/.venv/bin/alembic", *args],
-            cwd=base, capture_output=True, text=True,
+            [sys.executable, "-m", "alembic", *args],
+            cwd=str(base), capture_output=True, text=True,
         )
         assert r.returncode == 0, r.stderr
