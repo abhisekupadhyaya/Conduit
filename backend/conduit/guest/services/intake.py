@@ -75,7 +75,7 @@ async def confirm(s: AsyncSession, actor, child_id, helpful: bool) -> dict:
     if child is None:
         raise NotFoundError("child not found")
     req = await rdal.get_request(s, child.request_id)
-    if req is None or req.guest_account_id != actor.id:
+    if req is None or str(req.guest_account_id) != str(actor.id):
         raise NotFoundError("child not found")          # ownership (no leak)
     if child.state != "answered":
         raise ConflictError("not awaiting confirmation")
