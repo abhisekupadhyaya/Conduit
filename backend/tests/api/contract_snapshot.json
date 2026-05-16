@@ -21,7 +21,19 @@
   ],
   [
     "GET",
+    "/api/supervisor/rooms"
+  ],
+  [
+    "GET",
+    "/api/supervisor/sections"
+  ],
+  [
+    "GET",
     "/api/supervisor/setup"
+  ],
+  [
+    "GET",
+    "/api/supervisor/stays"
   ],
   [
     "PATCH",
@@ -30,6 +42,18 @@
   [
     "PATCH",
     "/api/supervisor/accounts/{account_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/rooms/{room_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/sections/{section_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/stays/{stay_id}"
   ],
   [
     "POST",
@@ -62,5 +86,25 @@
   [
     "POST",
     "/api/supervisor/decisions/{escalation_id}"
+  ],
+  [
+    "POST",
+    "/api/supervisor/rooms"
+  ],
+  [
+    "POST",
+    "/api/supervisor/sections"
+  ],
+  [
+    "POST",
+    "/api/supervisor/stays"
+  ],
+  [
+    "POST",
+    "/api/supervisor/stays/{stay_id}/checkout"
+  ],
+  [
+    "POST",
+    "/api/supervisor/stays/{stay_id}/relocate"
   ]
 ]

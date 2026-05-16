@@ -13,6 +13,20 @@ from conduit.shared.db import SessionLocal
 from conduit.supervisor.services import accounts as svc
 
 
+from sqlalchemy import select as _select
+from conduit.shared.models.property import Property as _Property
+
+
+async def ensure_property(s, name: str = "Conduit Property") -> _Property:
+    existing = (await s.execute(_select(_Property))).scalars().first()
+    if existing is not None:
+        return existing
+    p = _Property(name=name)
+    s.add(p)
+    await s.flush()
+    return p
+
+
 async def run(s: AsyncSession, *, username: str, password: str) -> None:
     if not username or not password:
         print("seed: CONDUIT_SEED_SUPERVISOR_USERNAME/PASSWORD required",
@@ -29,6 +43,7 @@ async def run(s: AsyncSession, *, username: str, password: str) -> None:
 async def _main() -> None:
     st = get_settings()
     async with SessionLocal() as s:
+        await ensure_property(s)
         await run(s, username=st.seed_supervisor_username,
                   password=st.seed_supervisor_password)
         await s.commit()

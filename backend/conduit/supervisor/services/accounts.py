@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.core.deps import Actor
-from conduit.core.exceptions import ConflictError, ConduitError, NotFoundError
+from conduit.core.exceptions import ConduitError, ConflictError, NotFoundError
 from conduit.core.security import hash_password
 from conduit.public.dal import accounts as dal
 from conduit.shared.models import Account

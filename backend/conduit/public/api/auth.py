@@ -35,7 +35,10 @@ async def logout(response: Response,
 @router.get("/me", response_model=AuthUser)
 async def me(actor: Actor = Depends(current_actor),
              s: AsyncSession = Depends(db_session)) -> AuthUser:
-    return AuthUser.model_validate(await svc.current_account(s, actor.id))
+    acc = await svc.current_account(s, actor.id)
+    base = AuthUser.model_validate(acc).model_dump()
+    amb = await svc.resolve_ambient(s, actor) or {}
+    return AuthUser(**{**base, **amb})
 
 
 @router.patch("/me", response_model=AuthUser)
