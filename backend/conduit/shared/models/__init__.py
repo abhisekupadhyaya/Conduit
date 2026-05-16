@@ -51,6 +51,9 @@ from conduit.shared.models.roster import Roster
 from conduit.shared.models.roster_assignment import RosterAssignment
 from conduit.shared.models.sla_preset import SLAPreset
 from conduit.shared.models.escalation_ladder import EscalationLadder
+from conduit.shared.models.work_order import WorkOrder
+from conduit.shared.models.timer import Timer
+from conduit.shared.models.escalation import Escalation
 
 __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "IssueCode", "KBEntry", "Request", "ChildSubRequest",
@@ -64,4 +67,5 @@ __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "EventAssignmentCreated", "EventAssignmentUpdated",
            "EventPresenceChanged",
            "StaffProfile", "StaffSkill", "Roster", "RosterAssignment",
-           "SLAPreset", "EscalationLadder"]
+           "SLAPreset", "EscalationLadder",
+           "WorkOrder", "Timer", "Escalation"]
