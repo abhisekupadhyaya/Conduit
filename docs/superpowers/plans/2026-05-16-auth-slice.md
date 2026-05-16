@@ -766,7 +766,7 @@ git commit -m "test(bench): throwaway DB harness + cookie actor + real-service f
 - Create: `backend/conduit/public/dal/accounts.py`
 - Test: `backend/tests/dal/test_accounts.py`
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `tests/dal/test_accounts.py`:
 
@@ -801,12 +801,12 @@ async def test_dal_crud_and_case_insensitive(db):
     assert await dal.count_active_by_role(db, "supervisor") == 1
 ```
 
-- [ ] **Step 2: Run it, expect fail**
+- [x] **Step 2: Run it, expect fail**
 
 Run: `.venv/bin/python -m pytest tests/dal/test_accounts.py -q`
 Expected: FAIL — module not found.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 Create `conduit/public/dal/accounts.py`:
 
@@ -871,12 +871,12 @@ async def count_active_by_role(s: AsyncSession, role: str) -> int:
     return int(res.scalar_one())
 ```
 
-- [ ] **Step 4: Run it, expect pass**
+- [x] **Step 4: Run it, expect pass**
 
 Run: `.venv/bin/python -m pytest tests/dal/test_accounts.py -q`
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add conduit/public/dal/accounts.py tests/dal/test_accounts.py
