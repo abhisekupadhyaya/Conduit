@@ -24,6 +24,54 @@
     "dict"
   ],
   [
+    "GET",
+    "/api/servicer/tasks",
+    [
+      200
+    ],
+    "list[TaskOut]"
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/accept",
+    [
+      200
+    ],
+    null
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/claim",
+    [
+      200
+    ],
+    null
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/complete",
+    [
+      200
+    ],
+    null
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/raise",
+    [
+      201
+    ],
+    null
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/start",
+    [
+      200
+    ],
+    null
+  ],
+  [
     "POST",
     "/api/servicer/work-orders/{wo_id}/accept",
     [
