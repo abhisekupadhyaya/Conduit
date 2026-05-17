@@ -1,26 +1,24 @@
+import importlib
 import pathlib
 import subprocess
 
-_MIGRATION = (
-    "/workspace/Conduit-conversation-answer-action/backend/migrations/"
-    "versions/0006_conversation_answer_action.py"
-)
+# backend/ root: tests/spine/<this file> -> parents[2].
+_BACKEND = pathlib.Path(__file__).resolve().parents[2]
 
 
 def _alembic(*args):
-    return subprocess.run(["/workspace/Conduit-conversation-answer-action/"
-                           "backend/.venv/bin/alembic", *args],
-                          cwd="/workspace/Conduit-conversation-answer-action/"
-                          "backend", capture_output=True, text=True)
+    return subprocess.run([str(_BACKEND / ".venv" / "bin" / "alembic"), *args],
+                          cwd=str(_BACKEND), capture_output=True, text=True)
 
 
 def test_revision_chain():
-    # Textual-assertion form: a module filename starting with ``0006_``
-    # cannot be imported via ``import`` / ``importlib`` reliably (the leading
-    # digit is not a valid identifier), so assert on the file text directly.
-    text = pathlib.Path(_MIGRATION).read_text()
-    assert 'down_revision: str | None = "0005_dispatch"' in text
-    assert 'revision: str = "0006_conv_aa"' in text
+    """0006 chains directly off 0005_dispatch (mirrors 0005's
+    test_down_revision_is_0004_staffing — importlib imports a digit-led
+    module fine)."""
+    m = importlib.import_module(
+        "migrations.versions.0006_conversation_answer_action")
+    assert m.down_revision == "0005_dispatch"
+    assert m.revision == "0006_conv_aa"
 
 
 def test_upgrade_downgrade_roundtrips():

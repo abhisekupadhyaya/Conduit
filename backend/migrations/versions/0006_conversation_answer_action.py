@@ -32,26 +32,28 @@ def upgrade() -> None:
 
     op.create_table(
         "rec_apply_reservation_mutation",
-        sa.Column("recommendation_escalation_id", sa.Uuid(),
-                  sa.ForeignKey("recommendation.escalation_id"),
-                  primary_key=True),
+        sa.Column("recommendation_escalation_id", sa.UUID(), nullable=False),
         sa.Column("field", sa.String(), nullable=False),
         sa.Column("requested_value", sa.DateTime(timezone=True),
                   nullable=False),
         sa.CheckConstraint("field = 'check_out'",
-                           name="ck_rec_apply_mutation_field"))
+                           name="ck_rec_apply_mutation_field"),
+        sa.ForeignKeyConstraint(["recommendation_escalation_id"],
+                                ["recommendation.escalation_id"]),
+        sa.PrimaryKeyConstraint("recommendation_escalation_id"))
 
     op.create_table(
         "event_reservation_mutated",
-        sa.Column("event_id", sa.Uuid(), sa.ForeignKey("event.id"),
-                  primary_key=True),
-        sa.Column("stay_id", sa.Uuid(), sa.ForeignKey("stay.id"),
-                  nullable=False),
+        sa.Column("event_id", sa.UUID(), nullable=False),
+        sa.Column("stay_id", sa.UUID(), nullable=False),
         sa.Column("field", sa.String(), nullable=False),
         sa.Column("old_value", sa.DateTime(timezone=True), nullable=False),
         sa.Column("new_value", sa.DateTime(timezone=True), nullable=False),
         sa.CheckConstraint("field = 'check_out'",
-                           name="ck_event_resv_mut_field"))
+                           name="ck_event_resv_mut_field"),
+        sa.ForeignKeyConstraint(["event_id"], ["event.id"]),
+        sa.ForeignKeyConstraint(["stay_id"], ["stay.id"]),
+        sa.PrimaryKeyConstraint("event_id"))
 
     # --- drop + recreate the 3 widened CHECKs (text change undetectable) ---
     op.drop_constraint("ck_rec_action", "recommendation", type_="check")
