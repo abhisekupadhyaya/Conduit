@@ -380,7 +380,38 @@ async def _resolved_action(s: AsyncSession, esc: Escalation, outcome: str,
     if action is None:
         raise ConflictError(
             f"outcome {outcome!r} requires a supervisor-supplied action")
-    return action, dict(payload or {})
+    params = dict(payload or {})
+    if action == "apply_reservation_mutation":
+        # JSON has no native datetime — the supervisor-supplied edit payload
+        # carries ``requested_value`` as an ISO-8601 string (the frontend
+        # ``datetime-local`` sends an offset-less ``YYYY-MM-DDTHH:MM``).
+        # Coerce to a tz-aware datetime here, the spine boundary where the
+        # other resolved action params are typed (the stored-rec branch
+        # already returns a real ORM ``DateTime`` value). Mirror Task 8's
+        # conservative ``dt.datetime.fromisoformat`` idiom
+        # (``conduit/shared/domain/triage.py``); naive → UTC (the rest of
+        # this slice is tz-aware UTC). Invalid input is rejected with the
+        # SAME ``ConflictError`` the adjacent missing-action guard uses for
+        # bad supervisor-supplied resolve input (a mapped 4xx — never a 500
+        # / asyncpg DataError, never a silent None onto ``stay.check_out``).
+        rv = params.get("requested_value")
+        if isinstance(rv, dt.datetime):
+            pass  # defensive — already typed
+        elif isinstance(rv, str):
+            try:
+                parsed = dt.datetime.fromisoformat(rv)
+            except (ValueError, TypeError):
+                raise ConflictError(
+                    "apply_reservation_mutation edit requires a valid ISO "
+                    f"datetime requested_value (got {rv!r})")
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            params["requested_value"] = parsed
+        else:
+            raise ConflictError(
+                "apply_reservation_mutation edit requires a valid ISO "
+                f"datetime requested_value (got {rv!r})")
+    return action, params
 
 
 async def _execute_action(s: AsyncSession, esc: Escalation,

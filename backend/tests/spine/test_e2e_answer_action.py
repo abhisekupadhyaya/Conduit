@@ -326,29 +326,14 @@ async def test_seam_approve_and_autoproceed_are_identical(
     # ===================================================================
     # SCENARIO C — supervisor EDIT through the REAL resolve route's
     # datetime-variant payload (an EDITED requested_value = orig + 1h, NOT
-    # the originally-extracted orig + 3h).
-    #
-    # SEAM BOUNDARY (reported, not papered over): the real resolve API
-    # carries the supervisor-supplied edit payload as a plain JSON ``dict``
-    # (``ResolveIn.payload: dict | None`` — supervisor/schemas/decisions.py,
-    # no field schema/coercion) and the spine's ``_resolved_action`` returns
-    # ``(action, dict(payload))`` VERBATIM for the ``edited`` outcome
-    # (engine/spine.py — no datetime parsing). JSON has no native datetime,
-    # so the ONLY value a real HTTP client can send for ``requested_value``
-    # is an ISO-8601 string; the spine then assigns that string straight
-    # onto ``Stay.check_out`` (a ``TIMESTAMP WITH TIME ZONE`` column) and
-    # asyncpg rejects it. This is a genuine product gap in the edit-path
-    # datetime coercion (NOT a test-construction error and NOT a defect
-    # in the A/B one-executor seam, which is fully proven above). Per the
-    # task: C is implemented "as far as the real resolve API cleanly
-    # supports" — we drive the REAL route with the REAL datetime-variant
-    # payload and PIN the exact boundary at the real seam (no production
-    # change, no invented API). When the edit-path coercion is added this
-    # ``pytest.raises`` flips to a clean success and the commented success
-    # assertions below become the live contract.
+    # the originally-extracted orig + 3h). The edit-path datetime coercion
+    # (engine/spine.py ``_resolved_action`` edited/overridden branch)
+    # parses the ISO-8601 string the real HTTP client must send (JSON has
+    # no native datetime) into a tz-aware datetime before it reaches the
+    # ``Stay.check_out`` ``TIMESTAMP WITH TIME ZONE`` column. This proves
+    # the edited value — NOT the originally-extracted one — is applied
+    # through the SAME single executor as Scenarios A & B.
     # ===================================================================
-    import sqlalchemy.exc as _saexc
-
     wc = await _seed_mutation_world(db, make_account)
     sup_c = await make_account("supervisor", f"supc-{uuid.uuid4().hex[:8]}",
                                _PW)
@@ -360,36 +345,43 @@ async def test_seam_approve_and_autoproceed_are_identical(
     edited_value = wc["original_checkout"] + dt.timedelta(hours=1)
     assert edited_value != extracted_c       # the edit really differs
 
-    # The edit path IS dispatched to the SAME single executor with the
-    # supervisor-supplied typed action (proving the seam is reached); the
-    # ISO-string requested_value is rejected at the real DB write — the
-    # precise, reported boundary of the real resolve API's datetime
-    # variant. Driven directly against the service-layer seam (the route
-    # would surface the SAME asyncpg DataError as an unhandled 500, since
-    # only ConduitError is mapped — core/exceptions.py); asserting at the
-    # seam pins the gap deterministically without a flaky 500 round-trip.
-    from conduit.core.deps import Actor as _Actor
-    from conduit.supervisor.services import decisions as _decisions_svc
+    # POST resolve {action: "edit", payload: {...}} via the REAL route —
+    # the EXACT edit payload shape test_supervisor_decisions.py uses
+    # (``{"action": "edit", "payload": {"action": <typed>, ...}}``). The
+    # supervisor-supplied typed action + edited requested_value (sent as an
+    # explicit ``+00:00`` ISO string — the only value a real JSON HTTP
+    # client can carry) flows through the SAME single executor.
+    await login(sup_c.username, _PW)
+    redit = await client.post(
+        f"/api/supervisor/decisions/{esc_c.id}/resolve",
+        json={"action": "edit", "payload": {
+            "action": "apply_reservation_mutation",
+            "field": "check_out",
+            "requested_value": edited_value.isoformat()}})
+    assert redit.status_code == 200, redit.text
+    await db.commit()
 
-    esc_c_loaded = (await db.execute(sa.select(Escalation).where(
+    esc_c_row = (await db.execute(sa.select(Escalation).where(
         Escalation.id == esc_c.id))).scalar_one()
-    with pytest.raises((_saexc.DBAPIError, _saexc.StatementError)):
-        await _decisions_svc.resolve(
-            db, _Actor(id=str(sup_c.id), role="supervisor"),
-            esc_c_loaded.id, action="edit", payload={
-                "action": "apply_reservation_mutation",
-                "field": "check_out",
-                "requested_value": edited_value.isoformat()})
-    # Discard the poisoned unit of work (the asyncpg error aborts the
-    # savepoint); the conftest's single outer rollback still guarantees
-    # zero residue regardless.
-    await db.rollback()
+    assert esc_c_row.state == "edited"
+    assert str(esc_c_row.resolved_by_account_id) == str(sup_c.id)
 
-    # --- The contract C WILL assert once the edit-path datetime coercion
-    # --- exists (kept here as the precise, ready-to-activate spec so the
-    # --- sentinel documents the intended end state of the edit variant):
-    #   esc_c_row.state == "edited"
-    #   esc_c_row.resolved_by_account_id == sup_c.id
-    #   Stay.check_out == edited_value  (NOT extracted_c)
-    #   exactly ONE EventReservationMutated(stay) new==edited old==orig
-    #   ChildSubRequest(child_c).state == "answered"
+    # The EDITED value won — NOT the originally-extracted orig + 3h.
+    end_c = await _end_state(db, child_c, wc["stay"].id)
+    assert end_c[0] == edited_value          # stay.check_out == EDITED
+    assert end_c[0] != extracted_c           # NOT the LLM-extracted value
+    assert end_c[1] == "answered"            # child closure-lite
+    assert end_c[2] == "reservation_mutation"  # resolution mode
+    assert end_c[3] == 1                      # exactly ONE mutated event
+
+    # The append-only reservation_mutated event for THIS stay: exactly one,
+    # new == EDITED, old == ORIGINAL (scoped by stay, no enumeration).
+    det_c = (await db.execute(sa.select(EventReservationMutated).where(
+        EventReservationMutated.stay_id == wc["stay"].id))).scalar_one()
+    assert det_c.field == "check_out"
+    assert det_c.old_value == wc["original_checkout"]
+    assert det_c.new_value == edited_value
+    ev_c = (await db.execute(sa.select(Event).where(
+        Event.id == det_c.event_id,
+        Event.type == "reservation_mutated"))).scalar_one()
+    assert ev_c is not None
