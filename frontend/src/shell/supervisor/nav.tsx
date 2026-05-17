@@ -10,6 +10,11 @@ import {
 import type { NavConfig } from "@/components/layout/nav-config"
 
 // Supervisor portal — the widest surface, all 8 pages in v1 (D33).
+// F4 (Spec §10): the Awareness Stream (index, watch), Decision Queue
+// (/decisions, act) — DISTINCT entries per D2 — plus Task Explorer
+// (/tasks, D6) and the SLA Presets / Escalation Ladder Setup children
+// are now backed by real pages. Entries are additive and unchanged in
+// shape; only their destinations are now live (no nav restructuring).
 export const supervisorNav: NavConfig = {
   brand: "Conduit",
   roleLabel: "Supervisor",
