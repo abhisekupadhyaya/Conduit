@@ -26,6 +26,9 @@ class DecisionOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
     escalation_id: str
     child_id: str
+    # The child's issue-code label (None = still uncategorized) — the UI
+    # renders this, never the raw child_id (embed-derived-label idiom).
+    issue_label: str | None = None
     trigger: str                      # triage_flag | stall | servicer_raised
     state: str
     cycle_count: int

@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict
 class WorkOrderRef(BaseModel):
     model_config = ConfigDict(extra="forbid")
     assigned_servicer_id: str | None = None
+    # Servicer display name (the UI renders this, not the raw id).
+    servicer_name: str | None = None
     accountable_owner_id: str | None = None
     state: str
 
@@ -35,6 +37,9 @@ class GlitchRef(BaseModel):
 class ChildExplorerOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
     child_id: str
+    # The child's issue-code label (None = uncategorized); the UI renders
+    # this, never the raw child_id.
+    issue_label: str | None = None
     state: str
     work_order: WorkOrderRef | None = None
     escalation: EscalationRef | None = None

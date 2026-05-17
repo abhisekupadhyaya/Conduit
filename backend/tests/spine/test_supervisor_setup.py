@@ -43,8 +43,11 @@ async def _duty_manager(make_account) -> Account:
 
 
 async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
-    pid = await _seed_property(db)
-    pid2 = await _seed_property(db)
+    # Single-property v1 (AD9): the property is resolved server-side, never
+    # an operator/body input — so the test seeds exactly ONE property and
+    # never passes property_id. Per-property uniqueness at the DB level is
+    # covered by the migration/model partial-unique-index test.
+    await _seed_property(db)
     duty = await _duty_manager(make_account)
     sup = await make_account("supervisor", f"sup-{uuid.uuid4().hex[:8]}", _PW)
     await db.commit()
@@ -67,8 +70,7 @@ async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
     await login(sv.username, _PW)
     assert (await client.post(
         "/api/supervisor/escalation-ladder",
-        json={"property_id": str(pid),
-              "duty_manager_account_id": str(duty.id),
+        json={"duty_manager_account_id": str(duty.id),
               "n_cycle_bound": 3})).status_code == 403
 
     await login(sup.username, _PW)
@@ -78,7 +80,7 @@ async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
     # ===================================================================
     # ---- POST valid → 201 + ONE sla_preset_created event ------------
     rp = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid), "tier": "P1",
+        "tier": "P1",
         "accept_window_seconds": 120, "fulfilment_sla_seconds": 1800,
         "supervisor_sla_seconds": 900})
     assert rp.status_code == 201, rp.text
@@ -100,38 +102,40 @@ async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
 
     # ---- duplicate ACTIVE (property,tier) → 409 (service guard) -----
     dup = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid), "tier": "P1",
+        "tier": "P1",
         "accept_window_seconds": 60, "fulfilment_sla_seconds": 600,
         "supervisor_sla_seconds": 300})
     assert dup.status_code == 409, dup.text
 
-    # A different tier on the same property is fine (not a dup).
+    # A different tier on the same (server-resolved) property is fine.
     ok2 = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid), "tier": "P2",
+        "tier": "P2",
         "accept_window_seconds": 60, "fulfilment_sla_seconds": 600,
         "supervisor_sla_seconds": 300})
     assert ok2.status_code == 201, ok2.text
 
     # ---- incoherent durations (≤ 0) → 422 --------------------------
+    # _validate_sla (422) runs BEFORE the duplicate-active check (409), so
+    # an incoherent P1 still 422s even though P1 is active on the property.
     bad = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid2), "tier": "P1",
+        "tier": "P1",
         "accept_window_seconds": 0, "fulfilment_sla_seconds": 1800,
         "supervisor_sla_seconds": 900})
     assert bad.status_code == 422, bad.text
     bad2 = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid2), "tier": "P1",
+        "tier": "P1",
         "accept_window_seconds": 120, "fulfilment_sla_seconds": -1,
         "supervisor_sla_seconds": 900})
     assert bad2.status_code == 422, bad2.text
     # bad tier enum → 422
     badt = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid2), "tier": "P9",
+        "tier": "P9",
         "accept_window_seconds": 120, "fulfilment_sla_seconds": 1800,
         "supervisor_sla_seconds": 900})
     assert badt.status_code == 422, badt.text
     # extra="forbid" → 422
     bade = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid2), "tier": "P1",
+        "tier": "P1",
         "accept_window_seconds": 120, "fulfilment_sla_seconds": 1800,
         "supervisor_sla_seconds": 900, "bogus": 1})
     assert bade.status_code == 422, bade.text
@@ -159,9 +163,9 @@ async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
     assert rpd.status_code == 200, rpd.text
     assert rpd.json()["status"] == "disabled"
     await db.commit()
-    # Now the (pid, P1) slot is free again → re-create succeeds (201).
+    # Now the P1 slot is free again → re-create succeeds (201).
     again = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(pid), "tier": "P1",
+        "tier": "P1",
         "accept_window_seconds": 90, "fulfilment_sla_seconds": 900,
         "supervisor_sla_seconds": 450})
     assert again.status_code == 201, again.text
@@ -183,7 +187,6 @@ async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
     # ===================================================================
     # ---- POST valid → 201 + ONE escalation_ladder_created event ----
     rl = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(pid),
         "duty_manager_account_id": str(duty.id),
         "n_cycle_bound": 3})
     assert rl.status_code == 201, rl.text
@@ -206,32 +209,25 @@ async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
 
     # ---- duplicate ACTIVE ladder for property → 409 ----------------
     ldup = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(pid),
         "duty_manager_account_id": str(duty.id),
         "n_cycle_bound": 5})
     assert ldup.status_code == 409, ldup.text
-
-    # A different property is fine.
-    lok2 = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(pid2),
-        "duty_manager_account_id": str(duty.id),
-        "n_cycle_bound": 2})
-    assert lok2.status_code == 201, lok2.text
+    # (Cross-property "different property is fine" is no longer reachable
+    # via the API in single-property v1 — the property is server-resolved.
+    # The per-property partial-unique index is asserted at the model level.)
 
     # ---- n_cycle_bound ≤ 0 → 422 -----------------------------------
+    # _validate_ladder (422) runs BEFORE the duplicate-active check (409).
     lbad = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(pid),
         "duty_manager_account_id": str(duty.id),
         "n_cycle_bound": 0})
     assert lbad.status_code == 422, lbad.text
     lbad2 = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(pid),
         "duty_manager_account_id": str(duty.id),
         "n_cycle_bound": -3})
     assert lbad2.status_code == 422, lbad2.text
     # extra="forbid" → 422
     lbade = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(pid),
         "duty_manager_account_id": str(duty.id),
         "n_cycle_bound": 3, "bogus": 1})
     assert lbade.status_code == 422, lbade.text
@@ -263,9 +259,8 @@ async def test_supervisor_setup_sla_and_ladder(client, make_account, login, db):
     assert rld.status_code == 200, rld.text
     assert rld.json()["status"] == "disabled"
     await db.commit()
-    # Slot freed → re-create on pid succeeds.
+    # Slot freed → re-create succeeds.
     lagain = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(pid),
         "duty_manager_account_id": str(duty.id),
         "n_cycle_bound": 4})
     assert lagain.status_code == 201, lagain.text

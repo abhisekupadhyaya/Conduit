@@ -57,11 +57,23 @@ export function ServicerHome() {
   const presence = usePresence()
   const tasks = useTasks()
 
-  const [selected, setSelected] = useState<Task | null>(null)
+  // Track the OPENED work-order id, not a frozen Task snapshot. The detail
+  // sheet must re-derive from the live `useTasks` data so the state (and
+  // its gated actions) advances after accept/start/complete instead of
+  // showing a stale card (which let the servicer re-click → 409s).
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [lastSelected, setLastSelected] = useState<Task | null>(null)
   const [detailOpen, setDetailOpen] = useState(false)
 
+  const liveSelected =
+    selectedId != null
+      ? ((tasks.data ?? []).find((t) => t.work_order_id === selectedId) ??
+        lastSelected)
+      : null
+
   const openTask = (t: Task) => {
-    setSelected(t)
+    setSelectedId(t.work_order_id)
+    setLastSelected(t)
     setDetailOpen(true)
   }
 
@@ -181,9 +193,12 @@ export function ServicerHome() {
       </div>
 
       <TaskDetail
-        task={selected}
+        task={liveSelected}
         open={detailOpen}
-        onOpenChange={setDetailOpen}
+        onOpenChange={(o) => {
+          setDetailOpen(o)
+          if (!o) setSelectedId(null)
+        }}
       />
     </div>
   )

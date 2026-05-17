@@ -27,8 +27,9 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.shared.models import (Escalation, Recommendation, RecExtendSla,
-                                   RecReassign, RecRelocate, Timer)
+from conduit.shared.models import (ChildSubRequest, Escalation, IssueCode,
+                                   Recommendation, RecExtendSla, RecReassign,
+                                   RecRelocate, Timer)
 
 # A decision is "live" / actionable while it is ``open`` — the default
 # queue. Resolved/terminal states are reachable only via an explicit
@@ -74,13 +75,16 @@ async def list_decisions(s: AsyncSession,
     remains (typically None — the silence path is disabled past the bound).
     """
     want = status or _DEFAULT_STATUS
-    escs = (await s.execute(
-        select(Escalation).where(Escalation.state == want)
+    rows = (await s.execute(
+        select(Escalation, IssueCode.label)
+        .outerjoin(ChildSubRequest, ChildSubRequest.id == Escalation.child_id)
+        .outerjoin(IssueCode, IssueCode.id == ChildSubRequest.issue_code_id)
+        .where(Escalation.state == want)
         .order_by(Escalation.created_at)
-    )).scalars().all()
+    )).all()
 
     out: list[dict] = []
-    for esc in escs:
+    for esc, issue_label in rows:
         rec = (await s.execute(select(Recommendation).where(
             Recommendation.escalation_id == esc.id))).scalar_one_or_none()
         rec_out = None
@@ -103,6 +107,7 @@ async def list_decisions(s: AsyncSession,
         out.append({
             "escalation_id": str(esc.id),
             "child_id": str(esc.child_id),
+            "issue_label": issue_label,
             "trigger": esc.trigger,
             "state": esc.state,
             "cycle_count": esc.cycle_count,

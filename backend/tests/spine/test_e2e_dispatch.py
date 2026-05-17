@@ -194,14 +194,15 @@ async def test_e2e_dispatch_journey(client, make_account, login, db,
     # ---- Supervisor seeds SLA preset + escalation ladder via the REAL E5
     #      CONFIG API (n_cycle_bound=2 so leg (b) reaches D21 fast). --------
     await login(sup.username, _PW)
+    # property_id server-resolved (single-property v1); the harness creates
+    # exactly one Property (h["prop"]) so the resolver is deterministic.
     rp = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(h["prop"].id), "tier": "P1",
+        "tier": "P1",
         "accept_window_seconds": 120, "fulfilment_sla_seconds": 1800,
         "supervisor_sla_seconds": 900})
     assert rp.status_code == 201, rp.text
     sla_id = rp.json()["id"]
     rl = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(h["prop"].id),
         "duty_manager_account_id": str(h["duty"].id),
         "n_cycle_bound": 2})
     assert rl.status_code == 201, rl.text

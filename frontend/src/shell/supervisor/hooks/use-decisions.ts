@@ -21,6 +21,7 @@ export type RecommendationOut = {
 export type DecisionOut = {
   escalation_id: string
   child_id: string
+  issue_label: string | null
   trigger: string // triage_flag | stall | servicer_raised
   state: string
   cycle_count: number

@@ -7,9 +7,13 @@ import { api } from "@/lib/api-client"
 // recent work · open glitches. WATCH-ONLY (D2 — separate route from the
 // decision queue); polled (AD7), never mutated here.
 
+// issue_label / servicer_name are the human-readable fields the UI renders
+// (backend embeds them — the StayOut.room_label idiom). Raw ids stay for
+// stable keys/future deep-links but are not shown.
 export type IncomingItem = {
   escalation_id: string
   child_id: string
+  issue_label: string | null
   trigger: string // triage_flag | stall | servicer_raised
   at: string
 }
@@ -17,20 +21,25 @@ export type IncomingItem = {
 export type DelegationItem = {
   work_order_id: string
   child_id: string
+  issue_label: string | null
   servicer_id: string | null
+  servicer_name: string | null
   at: string
 }
 
 export type RecentWorkItem = {
   work_order_id: string
   child_id: string
+  issue_label: string | null
   servicer_id: string | null
+  servicer_name: string | null
   at: string
 }
 
 export type OpenGlitchItem = {
   glitch_id: string
   child_id: string
+  issue_label: string | null
   opened_from: string // problem_report | dispute
   at: string
 }

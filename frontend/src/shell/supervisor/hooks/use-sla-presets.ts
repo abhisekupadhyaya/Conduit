@@ -18,8 +18,9 @@ export type SLAPresetOut = {
   created_at: string
 }
 
+// property_id is resolved server-side (single-property v1, AD9) — not part
+// of the create body; it remains on SLAPresetOut for display.
 export type SLAPresetCreate = {
-  property_id: string
   tier: string
   accept_window_seconds: number
   fulfilment_sla_seconds: number

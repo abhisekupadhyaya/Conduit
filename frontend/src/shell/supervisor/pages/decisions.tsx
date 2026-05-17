@@ -276,7 +276,7 @@ export function DecisionsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Trigger</TableHead>
-                <TableHead>Child</TableHead>
+                <TableHead>Request</TableHead>
                 <TableHead>Recommendation</TableHead>
                 <TableHead>Cycle</TableHead>
                 <TableHead>Supervisor SLA</TableHead>
@@ -289,8 +289,8 @@ export function DecisionsPage() {
                   <TableCell className="font-medium">
                     {d.trigger.replace(/_/g, " ")}
                   </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">
-                    {d.child_id}
+                  <TableCell>
+                    {d.issue_label ?? "Uncategorized"}
                   </TableCell>
                   <TableCell>
                     {d.recommendation ? (
@@ -324,8 +324,8 @@ export function DecisionsPage() {
               </span>
               {slaCell(d)}
             </div>
-            <div className="text-muted-foreground font-mono text-xs">
-              {d.child_id}
+            <div className="text-sm">
+              {d.issue_label ?? "Uncategorized"}
             </div>
             <div className="text-muted-foreground text-xs">
               {d.recommendation

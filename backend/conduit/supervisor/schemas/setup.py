@@ -17,7 +17,8 @@ from pydantic import BaseModel, ConfigDict
 
 class SLAPresetCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    property_id: uuid.UUID
+    # property_id is resolved server-side (single-property v1, AD9) — never
+    # an operator input; mirrors sections/rosters (`_property_id`).
     tier: str
     accept_window_seconds: int
     fulfilment_sla_seconds: int
@@ -47,7 +48,7 @@ class SLAPresetOut(BaseModel):
 
 class EscalationLadderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    property_id: uuid.UUID
+    # property_id resolved server-side (single-property v1, AD9).
     duty_manager_account_id: uuid.UUID
     n_cycle_bound: int
 

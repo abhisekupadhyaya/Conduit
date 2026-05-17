@@ -16,6 +16,8 @@ import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
 import { DataTableShell } from "@/components/common/data-table-shell"
 import { Confirm } from "@/components/common/confirm"
+import { ComboboxField } from "@/components/common/combobox-field"
+import { useAccounts } from "@/shell/supervisor/hooks/use-accounts"
 import {
   useChildren,
   useTakeover,
@@ -45,6 +47,18 @@ function TargetDialog({
   pending: boolean
 }) {
   const [val, setVal] = useState("")
+  const accounts = useAccounts("servicer")
+  const servicerOptions = [
+    // Optional (takeover): the empty sentinel = the acting supervisor
+    // becomes the assignee. Reassign is required → no sentinel.
+    ...(required
+      ? []
+      : [{ value: "", label: "Me (I take it over)" }]),
+    ...(accounts.data ?? []).map((a) => ({
+      value: a.id,
+      label: `${a.username} (${a.role})`,
+    })),
+  ]
   return (
     <Dialog
       open={open}
@@ -59,17 +73,16 @@ function TargetDialog({
         </DialogHeader>
         <div className="space-y-1.5">
           <Label htmlFor="target_servicer_id">
-            target servicer id{required ? "" : " (optional)"}
+            {required ? "Servicer" : "Servicer (optional)"}
           </Label>
-          <Input
-            id="target_servicer_id"
+          <ComboboxField
+            options={servicerOptions}
             value={val}
-            onChange={(e) => setVal(e.target.value)}
+            onChange={setVal}
             placeholder={
-              required
-                ? "servicer account id"
-                : "blank → you become the assignee"
+              required ? "Select servicer" : "Select servicer or take it over"
             }
+            emptyText="No servicer accounts"
           />
         </div>
         <DialogFooter>
@@ -217,7 +230,7 @@ export function TaskExplorerPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Child</TableHead>
+                <TableHead>Request</TableHead>
                 <TableHead>State</TableHead>
                 <TableHead>Work order</TableHead>
                 <TableHead>Escalation</TableHead>
@@ -228,15 +241,15 @@ export function TaskExplorerPage() {
             <TableBody>
               {rows.map((c) => (
                 <TableRow key={c.child_id}>
-                  <TableCell className="font-mono text-xs">
-                    {c.child_id}
+                  <TableCell>
+                    {c.issue_label ?? "Uncategorized"}
                   </TableCell>
                   <TableCell className="font-medium">{c.state}</TableCell>
                   <TableCell className="text-muted-foreground text-xs">
                     {c.work_order
                       ? `${c.work_order.state}${
-                          c.work_order.assigned_servicer_id
-                            ? ` · ${c.work_order.assigned_servicer_id}`
+                          c.work_order.servicer_name
+                            ? ` · ${c.work_order.servicer_name}`
                             : ""
                         }`
                       : "—"}
@@ -261,8 +274,10 @@ export function TaskExplorerPage() {
             className="flex items-center justify-between rounded-lg border p-3"
           >
             <div className="space-y-0.5">
-              <div className="font-mono text-xs">{c.child_id}</div>
-              <div className="text-sm font-medium">{c.state}</div>
+              <div className="text-sm font-medium">
+                {c.issue_label ?? "Uncategorized"}
+              </div>
+              <div className="text-muted-foreground text-xs">{c.state}</div>
               <div className="text-muted-foreground text-xs">
                 {c.work_order ? `wo: ${c.work_order.state}` : "no wo"}
                 {c.escalation ? ` · esc: ${c.escalation.state}` : ""}
@@ -293,8 +308,8 @@ export function TaskExplorerPage() {
       <Confirm
         open={cancelFor !== null}
         onOpenChange={(o) => !o && setCancelFor(null)}
-        title="Cancel child?"
-        description={cancelFor?.child_id}
+        title="Cancel request?"
+        description={cancelFor?.issue_label ?? "Uncategorized"}
         confirmLabel="Cancel child"
         onConfirm={doCancel}
       />

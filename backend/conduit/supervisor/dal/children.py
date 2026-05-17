@@ -25,8 +25,8 @@ import uuid
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.shared.models import (ChildSubRequest, Escalation, Glitch,
-                                   WorkOrder)
+from conduit.shared.models import (Account, ChildSubRequest, Escalation,
+                                   Glitch, IssueCode, WorkOrder)
 
 
 async def get_child(s: AsyncSession,
@@ -79,13 +79,26 @@ async def list_children(s: AsyncSession, *,
         )).scalar_one_or_none()
         gl = (await s.execute(select(Glitch).where(
             Glitch.child_id == c.id))).scalar_one_or_none()
+        # Human-readable labels (the UI renders these, not raw ids).
+        issue_label = None
+        if c.issue_code_id is not None:
+            issue_label = (await s.execute(select(IssueCode.label).where(
+                IssueCode.id == c.issue_code_id))).scalar_one_or_none()
+        servicer_name = None
+        if wo is not None and wo.assigned_servicer_id is not None:
+            servicer_name = (await s.execute(
+                select(Account.display_name).where(
+                    Account.id == wo.assigned_servicer_id)
+            )).scalar_one_or_none()
         out.append({
             "child_id": str(c.id),
+            "issue_label": issue_label,
             "state": c.state,
             "work_order": None if wo is None else {
                 "assigned_servicer_id": (
                     str(wo.assigned_servicer_id)
                     if wo.assigned_servicer_id is not None else None),
+                "servicer_name": servicer_name,
                 "accountable_owner_id": (
                     str(wo.accountable_owner_id)
                     if wo.accountable_owner_id is not None else None),

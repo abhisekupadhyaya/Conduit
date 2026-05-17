@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -17,6 +17,8 @@ import { PageHeader } from "@/components/layout/page-header"
 import { DataTableShell } from "@/components/common/data-table-shell"
 import { StatusBadge } from "@/components/common/status-badge"
 import { Confirm } from "@/components/common/confirm"
+import { ComboboxField } from "@/components/common/combobox-field"
+import { useAccounts } from "@/shell/supervisor/hooks/use-accounts"
 import {
   useEscalationLadder,
   useCreateEscalationLadder,
@@ -30,19 +32,49 @@ import {
 // + row dropdown; disable-not-delete via the merged `confirm` (NO delete
 // UI). Fields mirror backend setup.EscalationLadderCreate/Patch verbatim.
 
-function LadderFormDialog({ edit }: { edit?: EscalationLadderOut }) {
-  const [open, setOpen] = useState(false)
+// `open`/`onOpenChange` make this controllable. Edit-from-row is rendered
+// CONTROLLED and OUTSIDE the row DropdownMenu — a Dialog nested in
+// DropdownMenuContent unmounts (flickers) when the menu closes. The "New"
+// header usage stays uncontrolled (self-triggered).
+function LadderFormDialog({
+  edit,
+  open: openProp,
+  onOpenChange,
+}: {
+  edit?: EscalationLadderOut
+  open?: boolean
+  onOpenChange?: (o: boolean) => void
+}) {
+  const controlled = onOpenChange !== undefined
+  const [openUncontrolled, setOpenUncontrolled] = useState(false)
+  const open = controlled ? !!openProp : openUncontrolled
+  const setOpen = controlled ? onOpenChange : setOpenUncontrolled
   const create = useCreateEscalationLadder()
   const update = useUpdateEscalationLadder()
   const isEdit = !!edit
 
-  const [propertyId, setPropertyId] = useState(edit?.property_id ?? "")
   const [dutyManagerId, setDutyManagerId] = useState(
     edit?.duty_manager_account_id ?? "",
   )
   const [nCycleBound, setNCycleBound] = useState(
     String(edit?.n_cycle_bound ?? ""),
   )
+  // D21: the backstop must be a non-time-boxed human — a supervisor or
+  // duty_manager account. Picker, not a raw UUID (single-property UX).
+  const accounts = useAccounts()
+  const dutyManagerOptions = (accounts.data ?? [])
+    .filter((a) => a.role === "supervisor" || a.role === "duty_manager")
+    .map((a) => ({ value: a.id, label: `${a.username} (${a.role})` }))
+
+  // Stays MOUNTED (open toggled, never conditionally unmounted — an
+  // unmounted-while-open Radix Dialog leaks the body pointer-events lock
+  // and makes the whole app unclickable). Re-sync fields from `edit` on
+  // row change / (re)open instead of remounting.
+  useEffect(() => {
+    if (!open) return
+    setDutyManagerId(edit?.duty_manager_account_id ?? "")
+    setNCycleBound(String(edit?.n_cycle_bound ?? ""))
+  }, [edit?.id, open])
 
   async function submit() {
     try {
@@ -55,7 +87,6 @@ function LadderFormDialog({ edit }: { edit?: EscalationLadderOut }) {
         toast.success("Escalation ladder updated")
       } else {
         await create.mutateAsync({
-          property_id: propertyId.trim(),
           duty_manager_account_id: dutyManagerId.trim(),
           n_cycle_bound: Number(nCycleBound),
         })
@@ -77,19 +108,21 @@ function LadderFormDialog({ edit }: { edit?: EscalationLadderOut }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {isEdit ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start font-normal"
-          >
-            Edit
-          </Button>
-        ) : (
-          <Button size="sm">New escalation ladder</Button>
-        )}
-      </DialogTrigger>
+      {!controlled && (
+        <DialogTrigger asChild>
+          {isEdit ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start font-normal"
+            >
+              Edit
+            </Button>
+          ) : (
+            <Button size="sm">New escalation ladder</Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
@@ -98,22 +131,13 @@ function LadderFormDialog({ edit }: { edit?: EscalationLadderOut }) {
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="property_id">property id</Label>
-            <Input
-              id="property_id"
-              disabled={isEdit}
-              value={propertyId}
-              onChange={(e) => setPropertyId(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="duty_manager_account_id">
-              duty manager account id
-            </Label>
-            <Input
-              id="duty_manager_account_id"
-              value={dutyManagerId}
-              onChange={(e) => setDutyManagerId(e.target.value)}
+            <Label htmlFor="duty_manager_account_id">duty manager</Label>
+            <ComboboxField
+              options={dutyManagerOptions}
+              value={dutyManagerId || null}
+              onChange={setDutyManagerId}
+              placeholder="Select duty manager"
+              emptyText="No supervisor / duty-manager accounts"
             />
           </div>
           <div className="space-y-1.5">
@@ -141,7 +165,13 @@ function LadderFormDialog({ edit }: { edit?: EscalationLadderOut }) {
 export function EscalationLadderPage() {
   const q = useEscalationLadder()
   const upd = useUpdateEscalationLadder()
+  const accounts = useAccounts()
+  const nameFor = (id: string) => {
+    const a = (accounts.data ?? []).find((x) => x.id === id)
+    return a ? `${a.username} (${a.role})` : "—"
+  }
   const [confirm, setConfirm] = useState<EscalationLadderOut | null>(null)
+  const [editing, setEditing] = useState<EscalationLadderOut | null>(null)
 
   const rows = q.data ?? []
   const state = q.isLoading
@@ -170,12 +200,10 @@ export function EscalationLadderPage() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem asChild>
-          <div>
-            <LadderFormDialog edit={l} />
-          </div>
+        <DropdownMenuItem onSelect={() => setEditing(l)}>
+          Edit
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setConfirm(l)}>
+        <DropdownMenuItem onSelect={() => setConfirm(l)}>
           {l.status === "active" ? "Disable" : "Enable"}
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -198,7 +226,6 @@ export function EscalationLadderPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Property</TableHead>
                 <TableHead>Duty manager</TableHead>
                 <TableHead>Cycle bound</TableHead>
                 <TableHead>Status</TableHead>
@@ -208,11 +235,8 @@ export function EscalationLadderPage() {
             <TableBody>
               {rows.map((l) => (
                 <TableRow key={l.id}>
-                  <TableCell className="font-mono text-xs">
-                    {l.property_id}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">
-                    {l.duty_manager_account_id}
+                  <TableCell className="font-medium">
+                    {nameFor(l.duty_manager_account_id)}
                   </TableCell>
                   <TableCell className="tabular-nums">
                     {l.n_cycle_bound}
@@ -232,9 +256,11 @@ export function EscalationLadderPage() {
             className="flex items-center justify-between rounded-lg border p-3"
           >
             <div className="space-y-0.5">
-              <div className="font-mono text-xs">{l.property_id}</div>
+              <div className="text-sm font-medium">
+                {nameFor(l.duty_manager_account_id)}
+              </div>
               <div className="text-muted-foreground text-xs">
-                dm {l.duty_manager_account_id} · bound {l.n_cycle_bound}
+                bound {l.n_cycle_bound}
               </div>
             </div>
             <div className="flex items-center gap-2">
@@ -244,6 +270,13 @@ export function EscalationLadderPage() {
           </div>
         ))}
       />
+      <LadderFormDialog
+        edit={editing ?? undefined}
+        open={editing !== null}
+        onOpenChange={(o) => {
+          if (!o) setEditing(null)
+        }}
+      />
       <Confirm
         open={confirm !== null}
         onOpenChange={(o) => !o && setConfirm(null)}
@@ -252,7 +285,9 @@ export function EscalationLadderPage() {
             ? "Disable escalation ladder?"
             : "Enable escalation ladder?"
         }
-        description={confirm?.property_id}
+        description={
+          confirm ? nameFor(confirm.duty_manager_account_id) : undefined
+        }
         confirmLabel={confirm?.status === "active" ? "Disable" : "Enable"}
         onConfirm={() => {
           if (confirm) toggle(confirm)

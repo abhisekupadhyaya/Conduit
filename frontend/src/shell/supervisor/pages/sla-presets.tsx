@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table"
@@ -11,6 +11,9 @@ import {
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select"
 import { MoreHorizontalIcon } from "lucide-react"
 import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
@@ -30,15 +33,30 @@ import {
 // "remove" is PATCH status='disabled'). Fields mirror the backend
 // setup.SLAPresetCreate/Patch schema verbatim.
 
-// Create requires property_id + tier; on edit, property_id is immutable
-// (the create-only key, mirroring issue-code's immutable `code`).
-function SlaPresetFormDialog({ edit }: { edit?: SLAPresetOut }) {
-  const [open, setOpen] = useState(false)
+// property_id is resolved server-side (single-property v1, AD9) — never an
+// operator input, identical to the sections/rosters CONFIG forms. Create
+// requires only tier + the durations.
+// `open`/`onOpenChange` make this controllable. Edit-from-row is rendered
+// CONTROLLED and OUTSIDE the row DropdownMenu — a Dialog nested in
+// DropdownMenuContent unmounts (flickers) when the menu closes. The "New"
+// header usage stays uncontrolled (self-triggered).
+function SlaPresetFormDialog({
+  edit,
+  open: openProp,
+  onOpenChange,
+}: {
+  edit?: SLAPresetOut
+  open?: boolean
+  onOpenChange?: (o: boolean) => void
+}) {
+  const controlled = onOpenChange !== undefined
+  const [openUncontrolled, setOpenUncontrolled] = useState(false)
+  const open = controlled ? !!openProp : openUncontrolled
+  const setOpen = controlled ? onOpenChange : setOpenUncontrolled
   const create = useCreateSlaPreset()
   const update = useUpdateSlaPreset()
   const isEdit = !!edit
 
-  const [propertyId, setPropertyId] = useState(edit?.property_id ?? "")
   const [tier, setTier] = useState(edit?.tier ?? "")
   const [acceptWindow, setAcceptWindow] = useState(
     String(edit?.accept_window_seconds ?? ""),
@@ -49,6 +67,19 @@ function SlaPresetFormDialog({ edit }: { edit?: SLAPresetOut }) {
   const [supervisorSla, setSupervisorSla] = useState(
     String(edit?.supervisor_sla_seconds ?? ""),
   )
+
+  // The dialog stays MOUNTED (open is toggled, never conditionally
+  // unmounted — unmounting a Radix Dialog while open leaks the body
+  // pointer-events/scroll lock and makes the whole app unclickable).
+  // So fields are re-synced from `edit` when the edited row changes or
+  // the dialog (re)opens, instead of relying on remount.
+  useEffect(() => {
+    if (!open) return
+    setTier(edit?.tier ?? "")
+    setAcceptWindow(String(edit?.accept_window_seconds ?? ""))
+    setFulfilmentSla(String(edit?.fulfilment_sla_seconds ?? ""))
+    setSupervisorSla(String(edit?.supervisor_sla_seconds ?? ""))
+  }, [edit?.id, open])
 
   async function submit() {
     try {
@@ -63,7 +94,6 @@ function SlaPresetFormDialog({ edit }: { edit?: SLAPresetOut }) {
         toast.success("SLA preset updated")
       } else {
         await create.mutateAsync({
-          property_id: propertyId.trim(),
           tier: tier.trim(),
           accept_window_seconds: Number(acceptWindow),
           fulfilment_sla_seconds: Number(fulfilmentSla),
@@ -87,19 +117,21 @@ function SlaPresetFormDialog({ edit }: { edit?: SLAPresetOut }) {
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {isEdit ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start font-normal"
-          >
-            Edit
-          </Button>
-        ) : (
-          <Button size="sm">New SLA preset</Button>
-        )}
-      </DialogTrigger>
+      {!controlled && (
+        <DialogTrigger asChild>
+          {isEdit ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start font-normal"
+            >
+              Edit
+            </Button>
+          ) : (
+            <Button size="sm">New SLA preset</Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="w-[calc(100vw-2rem)] sm:max-w-md">
         <DialogHeader>
           <DialogTitle>
@@ -108,21 +140,19 @@ function SlaPresetFormDialog({ edit }: { edit?: SLAPresetOut }) {
         </DialogHeader>
         <div className="space-y-3">
           <div className="space-y-1.5">
-            <Label htmlFor="property_id">property id</Label>
-            <Input
-              id="property_id"
-              disabled={isEdit}
-              value={propertyId}
-              onChange={(e) => setPropertyId(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
             <Label htmlFor="tier">tier</Label>
-            <Input
-              id="tier"
-              value={tier}
-              onChange={(e) => setTier(e.target.value)}
-            />
+            <Select value={tier} onValueChange={setTier}>
+              <SelectTrigger id="tier" className="w-full">
+                <SelectValue placeholder="Select tier" />
+              </SelectTrigger>
+              <SelectContent>
+                {(["P1", "P2", "P3", "P4"] as const).map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {t}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="accept_window_seconds">
@@ -174,6 +204,7 @@ export function SlaPresetsPage() {
   const q = useSlaPresets()
   const upd = useUpdateSlaPreset()
   const [confirm, setConfirm] = useState<SLAPresetOut | null>(null)
+  const [editing, setEditing] = useState<SLAPresetOut | null>(null)
 
   const rows = q.data ?? []
   const state = q.isLoading
@@ -202,12 +233,10 @@ export function SlaPresetsPage() {
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem asChild>
-          <div>
-            <SlaPresetFormDialog edit={p} />
-          </div>
+        <DropdownMenuItem onSelect={() => setEditing(p)}>
+          Edit
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setConfirm(p)}>
+        <DropdownMenuItem onSelect={() => setConfirm(p)}>
           {p.status === "active" ? "Disable" : "Enable"}
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -231,7 +260,6 @@ export function SlaPresetsPage() {
             <TableHeader>
               <TableRow>
                 <TableHead>Tier</TableHead>
-                <TableHead>Property</TableHead>
                 <TableHead>Accept (s)</TableHead>
                 <TableHead>Fulfilment (s)</TableHead>
                 <TableHead>Supervisor (s)</TableHead>
@@ -243,9 +271,6 @@ export function SlaPresetsPage() {
               {rows.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell className="font-medium">{p.tier}</TableCell>
-                  <TableCell className="text-muted-foreground font-mono text-xs">
-                    {p.property_id}
-                  </TableCell>
                   <TableCell className="tabular-nums">
                     {p.accept_window_seconds}
                   </TableCell>
@@ -283,6 +308,13 @@ export function SlaPresetsPage() {
             </div>
           </div>
         ))}
+      />
+      <SlaPresetFormDialog
+        edit={editing ?? undefined}
+        open={editing !== null}
+        onOpenChange={(o) => {
+          if (!o) setEditing(null)
+        }}
       />
       <Confirm
         open={confirm !== null}

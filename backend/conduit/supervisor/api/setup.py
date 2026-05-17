@@ -22,9 +22,11 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.core.deps import Actor, db_session, require_roles
+from conduit.shared.models.property import Property
 from conduit.supervisor.schemas.setup import (
     EscalationLadderCreate,
     EscalationLadderOut,
@@ -36,6 +38,14 @@ from conduit.supervisor.schemas.setup import (
 from conduit.supervisor.services import setup as svc
 
 _sup = require_roles("supervisor", "duty_manager")
+
+
+async def _property_id(s: AsyncSession):
+    """Single-property v1 (AD9): the property is resolved server-side, never
+    an operator input — identical to ``binding._property_id`` /
+    ``rosters._property_id``. Keeps the four CONFIG surfaces consistent."""
+    return (await s.execute(select(Property.id))).scalars().first()
+
 
 # The pre-existing setup-config placeholder (kept verbatim so the merged
 # ``/supervisor/setup`` surface is unchanged).
@@ -62,7 +72,9 @@ async def list_presets(status: str | None = None,
                     status_code=201)
 async def create_preset(body: SLAPresetCreate, actor: Actor = Depends(_sup),
                          s: AsyncSession = Depends(db_session)):
-    obj = await svc.create_preset(s, actor=actor, **body.model_dump())
+    obj = await svc.create_preset(s, actor=actor,
+                                  property_id=await _property_id(s),
+                                  **body.model_dump())
     await s.commit()
     return obj
 
@@ -90,7 +102,9 @@ async def list_ladders(status: str | None = None,
 async def create_ladder(body: EscalationLadderCreate,
                          actor: Actor = Depends(_sup),
                          s: AsyncSession = Depends(db_session)):
-    obj = await svc.create_ladder(s, actor=actor, **body.model_dump())
+    obj = await svc.create_ladder(s, actor=actor,
+                                  property_id=await _property_id(s),
+                                  **body.model_dump())
     await s.commit()
     return obj
 

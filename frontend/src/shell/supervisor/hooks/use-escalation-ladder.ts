@@ -16,8 +16,9 @@ export type EscalationLadderOut = {
   created_at: string
 }
 
+// property_id resolved server-side (single-property v1, AD9) — not in the
+// create body; remains on EscalationLadderOut for display.
 export type EscalationLadderCreate = {
-  property_id: string
   duty_manager_account_id: string
   n_cycle_bound: number
 }

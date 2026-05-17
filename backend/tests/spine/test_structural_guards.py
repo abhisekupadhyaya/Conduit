@@ -335,14 +335,15 @@ async def test_g1_response_schemas_forbid_extra_and_no_leak(
     p = Property(name=f"P-{_uuid.uuid4().hex[:6]}")
     db.add(p)
     await db.flush()
+    # property_id is server-resolved (single-property v1, AD9); `p` is the
+    # only Property in scope so the resolver is deterministic.
     rp = await client.post("/api/supervisor/sla-presets", json={
-        "property_id": str(p.id), "tier": "P2",
+        "tier": "P2",
         "accept_window_seconds": 60, "fulfilment_sla_seconds": 600,
         "supervisor_sla_seconds": 1200})
     assert rp.status_code == 201, rp.text
     SLAPresetOut(**rp.json())                              # round-trips
     rl = await client.post("/api/supervisor/escalation-ladder", json={
-        "property_id": str(p.id),
         "duty_manager_account_id": str(sup.id), "n_cycle_bound": 3})
     assert rl.status_code == 201, rl.text
     EscalationLadderOut(**rl.json())

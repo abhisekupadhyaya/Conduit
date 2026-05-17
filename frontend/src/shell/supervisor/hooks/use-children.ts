@@ -9,6 +9,7 @@ import { api } from "@/lib/api-client"
 
 export type WorkOrderRef = {
   assigned_servicer_id: string | null
+  servicer_name: string | null
   accountable_owner_id: string | null
   state: string
 }
@@ -26,6 +27,7 @@ export type GlitchRef = {
 
 export type ChildExplorerOut = {
   child_id: string
+  issue_label: string | null
   state: string
   work_order: WorkOrderRef | null
   escalation: EscalationRef | null

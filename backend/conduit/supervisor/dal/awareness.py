@@ -40,14 +40,16 @@ from __future__ import annotations
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from conduit.shared.models import (Event, EventEscalationOpened,
+from conduit.shared.models import (Account, ChildSubRequest, Event,
+                                   EventEscalationOpened,
                                    EventEscalationResolved,
                                    EventGlitchClosed, EventGlitchOpened,
                                    EventWorkOrderAccepted,
                                    EventWorkOrderBroadcast,
                                    EventWorkOrderCompleted,
                                    EventWorkOrderInProgress,
-                                   EventWorkOrderPushed, Glitch, WorkOrder)
+                                   EventWorkOrderPushed, IssueCode, Glitch,
+                                   WorkOrder)
 
 # Cap each section so the polled read stays bounded (AD7 — a poll, not a
 # firehose). Newest activity first.
@@ -68,17 +70,21 @@ async def _incoming(s: AsyncSession) -> list[dict]:
     closed = select(EventEscalationResolved.escalation_id)
     rows = (await s.execute(
         select(Escalation.id, Escalation.child_id, Escalation.trigger,
-               Event.at)
+               IssueCode.label, Event.at)
         .join(EventEscalationOpened,
               EventEscalationOpened.escalation_id == Escalation.id)
         .join(Event, Event.id == EventEscalationOpened.event_id)
+        .outerjoin(ChildSubRequest,
+                   ChildSubRequest.id == Escalation.child_id)
+        .outerjoin(IssueCode,
+                   IssueCode.id == ChildSubRequest.issue_code_id)
         .where(Escalation.id.notin_(closed))
         .order_by(Event.at.desc())
         .limit(_LIMIT)
     )).all()
     return [{"escalation_id": str(eid), "child_id": str(cid),
-             "trigger": trig, "at": at}
-            for eid, cid, trig, at in rows]
+             "issue_label": label, "trigger": trig, "at": at}
+            for eid, cid, trig, label, at in rows]
 
 
 async def _work_order_section(s: AsyncSession, detail_clss) -> list[dict]:
@@ -90,19 +96,28 @@ async def _work_order_section(s: AsyncSession, detail_clss) -> list[dict]:
     for detail_cls in detail_clss:
         rows = (await s.execute(
             select(WorkOrder.id, WorkOrder.child_id,
-                   WorkOrder.assigned_servicer_id, Event.at)
+                   WorkOrder.assigned_servicer_id, IssueCode.label,
+                   Account.display_name, Event.at)
             .join(detail_cls, detail_cls.work_order_id == WorkOrder.id)
             .join(Event, Event.id == detail_cls.event_id)
+            .outerjoin(ChildSubRequest,
+                       ChildSubRequest.id == WorkOrder.child_id)
+            .outerjoin(IssueCode,
+                       IssueCode.id == ChildSubRequest.issue_code_id)
+            .outerjoin(Account,
+                       Account.id == WorkOrder.assigned_servicer_id)
             .order_by(Event.at.desc())
             .limit(_LIMIT)
         )).all()
-        for wid, cid, sid, at in rows:
+        for wid, cid, sid, label, sname, at in rows:
             prev = out.get(wid)
             # Keep the most-recent emitting event per work order.
             if prev is None or at > prev["at"]:
                 out[wid] = {"work_order_id": str(wid),
                             "child_id": str(cid),
+                            "issue_label": label,
                             "servicer_id": str(sid) if sid else None,
+                            "servicer_name": sname,
                             "at": at}
     return sorted(out.values(), key=lambda r: r["at"], reverse=True)[:_LIMIT]
 
@@ -115,16 +130,21 @@ async def _open_glitches(s: AsyncSession) -> list[dict]:
     ``glitch_closed`` is appended."""
     closed = select(EventGlitchClosed.glitch_id)
     rows = (await s.execute(
-        select(Glitch.id, Glitch.child_id, Glitch.opened_from, Event.at)
+        select(Glitch.id, Glitch.child_id, Glitch.opened_from,
+               IssueCode.label, Event.at)
         .join(EventGlitchOpened, EventGlitchOpened.glitch_id == Glitch.id)
         .join(Event, Event.id == EventGlitchOpened.event_id)
+        .outerjoin(ChildSubRequest,
+                   ChildSubRequest.id == Glitch.child_id)
+        .outerjoin(IssueCode,
+                   IssueCode.id == ChildSubRequest.issue_code_id)
         .where(Glitch.id.notin_(closed))
         .order_by(Event.at.desc())
         .limit(_LIMIT)
     )).all()
     return [{"glitch_id": str(gid), "child_id": str(cid),
-             "opened_from": of, "at": at}
-            for gid, cid, of, at in rows]
+             "issue_label": label, "opened_from": of, "at": at}
+            for gid, cid, of, label, at in rows]
 
 
 async def awareness(s: AsyncSession) -> dict:

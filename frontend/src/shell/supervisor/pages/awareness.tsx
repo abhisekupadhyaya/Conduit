@@ -111,63 +111,43 @@ export function AwarenessPage() {
       <Section
         title="Incoming"
         rows={a.incoming}
-        columns={["Trigger", "Child", "Escalation", "At"]}
+        columns={["Request", "Trigger", "At"]}
         rowKey={(r) => r.escalation_id}
         cells={(r) => [
+          r.issue_label ?? "Uncategorized",
           r.trigger.replace(/_/g, " "),
-          <span key="c" className="font-mono text-xs">
-            {r.child_id}
-          </span>,
-          <span key="e" className="font-mono text-xs">
-            {r.escalation_id}
-          </span>,
           fmt(r.at),
         ]}
       />
       <Section
         title="Task delegation"
         rows={a.task_delegation}
-        columns={["Work order", "Child", "Servicer", "At"]}
+        columns={["Request", "Servicer", "At"]}
         rowKey={(r) => r.work_order_id}
         cells={(r) => [
-          <span key="w" className="font-mono text-xs">
-            {r.work_order_id}
-          </span>,
-          <span key="c" className="font-mono text-xs">
-            {r.child_id}
-          </span>,
-          r.servicer_id ?? "—",
+          r.issue_label ?? "Uncategorized",
+          r.servicer_name ?? "—",
           fmt(r.at),
         ]}
       />
       <Section
         title="Servicer recent work"
         rows={a.servicer_recent_work}
-        columns={["Work order", "Child", "Servicer", "At"]}
+        columns={["Request", "Servicer", "At"]}
         rowKey={(r) => r.work_order_id}
         cells={(r) => [
-          <span key="w" className="font-mono text-xs">
-            {r.work_order_id}
-          </span>,
-          <span key="c" className="font-mono text-xs">
-            {r.child_id}
-          </span>,
-          r.servicer_id ?? "—",
+          r.issue_label ?? "Uncategorized",
+          r.servicer_name ?? "—",
           fmt(r.at),
         ]}
       />
       <Section
         title="Open glitches"
         rows={a.open_glitches}
-        columns={["Glitch", "Child", "Opened from", "At"]}
+        columns={["Request", "Opened from", "At"]}
         rowKey={(r) => r.glitch_id}
         cells={(r) => [
-          <span key="g" className="font-mono text-xs">
-            {r.glitch_id}
-          </span>,
-          <span key="c" className="font-mono text-xs">
-            {r.child_id}
-          </span>,
+          r.issue_label ?? "Uncategorized",
           r.opened_from.replace(/_/g, " "),
           fmt(r.at),
         ]}
