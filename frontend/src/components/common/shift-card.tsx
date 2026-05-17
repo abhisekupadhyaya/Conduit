@@ -12,26 +12,24 @@ export type Shift = {
 }
 
 const timeFmt = (iso: string) =>
-  new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+  new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })
 
-function relative(toIso: string, now: Date): string {
-  const ms = new Date(toIso).getTime() - now.getTime()
+// Calm + human: under an hour → "in 47m"; same-day → "in 6h"; further out →
+// an absolute "Fri 5:00 PM". Never a raw "71h 47m".
+function humane(toIso: string, now: Date): string {
+  const then = new Date(toIso)
+  const ms = then.getTime() - now.getTime()
   if (ms <= 0) return "now"
   const mins = Math.round(ms / 60000)
-  const h = Math.floor(mins / 60)
-  const m = mins % 60
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
-}
-
-function derivedLine(
-  current: Shift | null,
-  next: Shift | null,
-  now: Date,
-): string {
-  if (current) return `On shift · ends in ${relative(current.shift_end, now)}`
-  if (next) return `Off shift · next ${timeFmt(next.shift_start)}`
-  return "No upcoming shift"
+  if (mins < 60) return `in ${mins}m`
+  const sameDay = then.toDateString() === now.toDateString()
+  if (sameDay) {
+    const h = Math.round(mins / 60)
+    return `in ${h}h`
+  }
+  return then.toLocaleString([], {
+    weekday: "short", hour: "numeric", minute: "2-digit",
+  })
 }
 
 export function ShiftCard({
@@ -42,19 +40,44 @@ export function ShiftCard({
   now?: Date
 }) {
   const shift = currentShift ?? nextShift
+  const onShift = currentShift !== null
+
   return (
-    <div className="space-y-1.5 rounded-lg border p-4">
+    <div className="bg-muted/40 space-y-3 rounded-lg border p-4">
       {shift ? (
-        <div className="text-sm font-medium">
-          {shift.section_label ?? "No section"} · {shift.role} ·{" "}
-          {timeFmt(shift.shift_start)}–{timeFmt(shift.shift_end)}
-        </div>
+        <>
+          <div className="flex items-baseline justify-between gap-3">
+            <span className="text-base font-semibold tracking-tight">
+              {shift.section_label ?? "No section"}
+            </span>
+            <span className="text-muted-foreground text-xs capitalize">
+              {shift.role}
+            </span>
+          </div>
+          <div className="text-foreground text-sm tabular-nums">
+            {timeFmt(shift.shift_start)} – {timeFmt(shift.shift_end)}
+          </div>
+        </>
       ) : (
         <div className="text-sm font-medium">No shift assigned</div>
       )}
-      <p className="text-muted-foreground text-xs">
-        {derivedLine(currentShift, nextShift, now)}
-      </p>
+
+      <div className="flex items-center gap-2 border-t pt-3">
+        <span
+          className={
+            onShift
+              ? "bg-foreground size-1.5 rounded-full"
+              : "border-muted-foreground size-1.5 rounded-full border"
+          }
+        />
+        <span className="text-muted-foreground text-xs">
+          {currentShift
+            ? `On shift · ends ${humane(currentShift.shift_end, now)}`
+            : nextShift
+              ? `Off shift · next ${humane(nextShift.shift_start, now)}`
+              : "No upcoming shift"}
+        </span>
+      </div>
     </div>
   )
 }

@@ -7,8 +7,20 @@ import {
 } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Label } from "@/components/ui/label"
-import { DateRangeField } from "@/components/common/date-range-field"
+import { Input } from "@/components/ui/input"
 import { toast } from "sonner"
+
+// A roster is a SHIFT (e.g. 08:00–16:00), not a date span — date-only was
+// the original defect. datetime-local is wall-clock (no tz): format a Date
+// to its YYYY-MM-DDTHH:mm local representation for the input; new Date(value)
+// parses it back as local time; submit still .toISOString()s to UTC for the
+// API, so the backend contract is unchanged.
+const pad = (n: number) => String(n).padStart(2, "0")
+const toLocalInput = (d?: Date) =>
+  d
+    ? `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
+      `T${pad(d.getHours())}:${pad(d.getMinutes())}`
+    : ""
 
 // Backend contract (supervisor/schemas/roster.py): create = POST
 // {shift_start,shift_end}; edit = PATCH {shift_start?,shift_end?,status?}.
@@ -94,32 +106,55 @@ export function RosterWindowFormDialog({
           </DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-3">
-          <div className="space-y-1.5">
-            <Label>shift window</Label>
-            <Controller
-              control={control}
-              name="shift_start"
-              render={({ field: start }) => (
-                <Controller
-                  control={control}
-                  name="shift_end"
-                  render={({ field: end }) => (
-                    <DateRangeField
-                      value={{ from: start.value, to: end.value }}
-                      onChange={(r) => {
-                        start.onChange(r.from)
-                        end.onChange(r.to)
-                      }}
-                    />
-                  )}
-                />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="shift_start">shift start</Label>
+              <Controller
+                control={control}
+                name="shift_start"
+                render={({ field }) => (
+                  <Input
+                    id="shift_start"
+                    type="datetime-local"
+                    value={toLocalInput(field.value)}
+                    onChange={(e) =>
+                      field.onChange(
+                        e.target.value ? new Date(e.target.value) : undefined
+                      )
+                    }
+                  />
+                )}
+              />
+              {errors.shift_start && (
+                <p className="text-destructive text-xs">
+                  {errors.shift_start.message}
+                </p>
               )}
-            />
-            {errors.shift_end && (
-              <p className="text-destructive text-xs">
-                {errors.shift_end.message}
-              </p>
-            )}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="shift_end">shift end</Label>
+              <Controller
+                control={control}
+                name="shift_end"
+                render={({ field }) => (
+                  <Input
+                    id="shift_end"
+                    type="datetime-local"
+                    value={toLocalInput(field.value)}
+                    onChange={(e) =>
+                      field.onChange(
+                        e.target.value ? new Date(e.target.value) : undefined
+                      )
+                    }
+                  />
+                )}
+              />
+              {errors.shift_end && (
+                <p className="text-destructive text-xs">
+                  {errors.shift_end.message}
+                </p>
+              )}
+            </div>
           </div>
           <Button type="submit" className="w-full" disabled={isSubmitting}>
             {isSubmitting
