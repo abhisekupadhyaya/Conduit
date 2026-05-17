@@ -1,0 +1,86 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "RegionScopedServices",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "ecs:*",
+        "ecr:*",
+        "rds:*",
+        "ssm:*",
+        "logs:*",
+        "cloudwatch:*",
+        "sns:*",
+        "application-autoscaling:*",
+        "route53:*",
+        "s3:*",
+        "dynamodb:*",
+        "kms:*",
+        "sts:GetCallerIdentity"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "${aws_region}" }
+      }
+    },
+    {
+      "Sid": "GlobalRoute53AndS3",
+      "Effect": "Allow",
+      "Action": [
+        "route53:*",
+        "s3:ListAllMyBuckets",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ScopedIAMForConduit",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PassRole",
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListInstanceProfilesForRole",
+        "iam:CreateInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::${account_id}:role/conduit-*",
+        "arn:aws:iam::${account_id}:instance-profile/conduit-*",
+        "arn:aws:iam::${account_id}:role/aws-service-role/*"
+      ]
+    },
+    {
+      "Sid": "DenyBoundaryAndOperatorTampering",
+      "Effect": "Deny",
+      "Action": [
+        "iam:DeletePolicy",
+        "iam:CreatePolicyVersion",
+        "iam:DeletePolicyVersion",
+        "iam:SetDefaultPolicyVersion",
+        "iam:DeleteRolePermissionsBoundary",
+        "iam:PutRolePermissionsBoundary"
+      ],
+      "Resource": [
+        "arn:aws:iam::${account_id}:policy/ConduitPermissionsBoundary",
+        "arn:aws:iam::${account_id}:role/ConduitTerraformOperator"
+      ]
+    }
+  ]
+}

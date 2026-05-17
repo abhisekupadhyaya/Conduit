@@ -84,5 +84,4 @@ dev-ops/
   add `seed.sh`.
 - `infrastructure.md`: add the operator-role / permissions-boundary resource
   row; add the object-storage deferral note.
-</content>
 </invoke>

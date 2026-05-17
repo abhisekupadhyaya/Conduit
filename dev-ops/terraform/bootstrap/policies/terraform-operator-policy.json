@@ -1,0 +1,119 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "ConduitInfraServices",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:*",
+        "ecs:*",
+        "ecr:*",
+        "rds:*",
+        "ssm:*",
+        "logs:*",
+        "cloudwatch:*",
+        "sns:*",
+        "application-autoscaling:*"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "${aws_region}" }
+      }
+    },
+    {
+      "Sid": "Route53Global",
+      "Effect": "Allow",
+      "Action": ["route53:*"],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ScopedIAMForConduitRoles",
+      "Effect": "Allow",
+      "Action": [
+        "iam:GetRole",
+        "iam:CreateRole",
+        "iam:DeleteRole",
+        "iam:TagRole",
+        "iam:UntagRole",
+        "iam:PassRole",
+        "iam:GetRolePolicy",
+        "iam:PutRolePolicy",
+        "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies",
+        "iam:ListAttachedRolePolicies",
+        "iam:AttachRolePolicy",
+        "iam:DetachRolePolicy",
+        "iam:ListInstanceProfilesForRole",
+        "iam:CreateInstanceProfile",
+        "iam:DeleteInstanceProfile",
+        "iam:GetInstanceProfile",
+        "iam:AddRoleToInstanceProfile",
+        "iam:RemoveRoleFromInstanceProfile",
+        "iam:CreateServiceLinkedRole"
+      ],
+      "Resource": [
+        "arn:aws:iam::${account_id}:role/conduit-*",
+        "arn:aws:iam::${account_id}:instance-profile/conduit-*",
+        "arn:aws:iam::${account_id}:role/aws-service-role/*"
+      ]
+    },
+    {
+      "Sid": "PassRoleToEcsAndEc2",
+      "Effect": "Allow",
+      "Action": "iam:PassRole",
+      "Resource": "arn:aws:iam::${account_id}:role/conduit-*",
+      "Condition": {
+        "StringEquals": {
+          "iam:PassedToService": [
+            "ecs-tasks.amazonaws.com",
+            "ec2.amazonaws.com"
+          ]
+        }
+      }
+    },
+    {
+      "Sid": "TerraformStateBackend",
+      "Effect": "Allow",
+      "Action": ["s3:ListBucket", "s3:GetBucketVersioning"],
+      "Resource": "${state_bucket}"
+    },
+    {
+      "Sid": "TerraformStateObjects",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "${state_bucket}/*"
+    },
+    {
+      "Sid": "TerraformStateKms",
+      "Effect": "Allow",
+      "Action": ["kms:Encrypt", "kms:Decrypt", "kms:GenerateDataKey", "kms:DescribeKey"],
+      "Resource": "${kms_key_arn}"
+    },
+    {
+      "Sid": "TerraformStateLock",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:DescribeTable"
+      ],
+      "Resource": "arn:aws:dynamodb:${aws_region}:${account_id}:table/conduit-terraform-lock"
+    },
+    {
+      "Sid": "AppManagedBuckets",
+      "Effect": "Allow",
+      "Action": ["s3:CreateBucket", "s3:*Bucket*", "s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
+      "Resource": "arn:aws:s3:::conduit-*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "${aws_region}" }
+      }
+    },
+    {
+      "Sid": "GetCallerIdentity",
+      "Effect": "Allow",
+      "Action": "sts:GetCallerIdentity",
+      "Resource": "*"
+    }
+  ]
+}
