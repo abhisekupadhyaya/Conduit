@@ -49,6 +49,11 @@ export default function App() {
         }
       >
         <Route index element={<ServicerHome />} />
+        {/* F3: task-detail is a drill-in Sheet composed into the queue
+            index; this additive deep-link route renders the same Task
+            Queue screen so a /servicer/tasks/:woId URL resolves. Existing
+            servicer routes (index, settings) are untouched. */}
+        <Route path="tasks/:woId" element={<ServicerHome />} />
         <Route path="settings" element={<ServicerSettings />} />
       </Route>
 
