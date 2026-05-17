@@ -212,18 +212,22 @@ async def test_guest_dispatch_spine(client, make_account, login, db,
     rdel2 = await client.delete("/api/guest/requests")
     assert rdel2.status_code == 405, rdel2.text
 
-    # ---- Drive the child to done_pending_confirm via C4 ------------------
-    # The child's pushed/accepted/in_progress hops are WorkOrder-carried (C4
-    # emits no child event for them — the established pattern in
-    # test_lifecycle_machines): set the child onto the dispatch arc directly,
-    # then WorkOrder → completed drives child → done_pending_confirm (C4 hop).
+    # ---- Drive the child to done_pending_confirm via the REAL path -------
+    # NO test-side model write of a journey transition. The child HOLDS at
+    # its REAL state (``routing``, set by the real intake/routing-effect);
+    # the WorkOrder carries the visible leg through the REAL C4 writer
+    # (accepted→in_progress→completed). On WO → completed the §7.2 C4 hop
+    # carries the routing-held child → done_pending_confirm (NOT conditional
+    # on the child being in_progress — Spec §7.2).
     from conduit.shared.domain import lifecycle
-    child_row = await db.get(ChildSubRequest, child.id)
     wo_row = await db.get(WorkOrder, wo.id)
-    child_row.state = "in_progress"
-    wo_row.state = "in_progress"
-    db.add_all([child_row, wo_row])
-    await db.flush()
+    assert wo_row.state == "pushed"
+    child_row = await db.get(ChildSubRequest, child.id)
+    assert child_row.state == "routing"     # real holding state, untouched
+    await lifecycle.transition(db, wo_row, "accepted",
+                               actor_account_id=srv.id)
+    await lifecycle.transition(db, wo_row, "in_progress",
+                               actor_account_id=srv.id)
     await lifecycle.transition(db, wo_row, "completed",
                                actor_account_id=srv.id)
     await db.flush()

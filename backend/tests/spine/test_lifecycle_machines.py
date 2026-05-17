@@ -35,6 +35,31 @@ def test_child_broadcast_fanout_legal():
     assert child_machine.legal("broadcast", "accepted") is True
 
 
+def test_child_dispatch_leg_carry_to_done_pending_confirm_legal():
+    """§7.2 spec-faithful machine semantics (NOT a weakening).
+
+    The dispatch child HOLDS at ``routing`` while the WorkOrder carries the
+    visible leg (pushed→accepted→in_progress→completed); no production code
+    advances the child past ``routing``. Spec §7.2: "WorkOrder → completed ⇒
+    child → done_pending_confirm" — NOT conditional on the child being
+    in_progress. So the C4 WO→completed carry must legally resume the child's
+    own arc at ``done_pending_confirm`` from whichever dispatch-leg state it
+    holds. These edges are now LEGAL by design (additively added — every
+    pre-existing edge is retained; the genuinely-illegal jumps below, e.g.
+    ``intake``/``triaged`` → done_pending_confirm and ``closed``-origin jumps,
+    stay illegal)."""
+    assert child_machine.legal("routing", "done_pending_confirm") is True
+    assert child_machine.legal("pushed", "done_pending_confirm") is True
+    assert child_machine.legal("broadcast", "done_pending_confirm") is True
+    assert child_machine.legal("accepted", "done_pending_confirm") is True
+    assert child_machine.legal("in_progress", "done_pending_confirm") is True
+    # NOT a blanket relaxation — non-dispatch-leg / terminal origins stay
+    # illegal jumps to done_pending_confirm.
+    assert child_machine.legal("intake", "done_pending_confirm") is False
+    assert child_machine.legal("triaged", "done_pending_confirm") is False
+    assert child_machine.legal("closed", "done_pending_confirm") is False
+
+
 def test_child_any_active_state_can_cancel():
     for active in ("triaged", "routing", "pushed", "broadcast", "accepted",
                    "in_progress", "done_pending_confirm"):
@@ -215,6 +240,34 @@ async def test_workorder_completed_orchestrates_child_and_xdn(db, make_child):
     assert xdn[0].source_work_order_id == wo.id
     assert xdn[0].target_department == "engineering"
     assert xdn[0].child_id == child.id
+
+
+async def test_workorder_completed_carries_routing_held_child(db, make_child):
+    """§7.2 real path: the dispatch child HOLDS at ``routing`` while the
+    WorkOrder carries the visible leg (E1 design — no production code advances
+    the child past ``routing``). On WorkOrder → completed the C4 hop MUST
+    carry the routing-held child → ``done_pending_confirm`` and emit EXACTLY
+    ONE ``child_done_pending_confirm`` event via the C4 single writer. This is
+    the journey the real portal APIs drive (no test-side model write of a
+    journey transition)."""
+    child = await make_child(db)
+    child.state = "routing"          # the REAL holding state (intake/routing)
+    db.add(child)
+    await db.flush()
+    wo = await _wo_on(db, child, state="in_progress")
+
+    await lifecycle.transition(db, wo, "completed", actor=None)
+    await db.flush()
+
+    await db.refresh(child)
+    assert child.state == "done_pending_confirm"
+    cev = (await db.execute(sa.select(Event)
+           .where(Event.type == "child_done_pending_confirm"))
+           ).scalars().all()
+    assert len(cev) == 1
+    cdet = (await db.execute(
+        sa.select(EventChildDonePendingConfirm))).scalars().all()
+    assert len(cdet) == 1 and cdet[0].child_id == child.id
 
 
 async def test_workorder_illegal_transition_is_side_effect_free(db,

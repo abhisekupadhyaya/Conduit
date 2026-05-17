@@ -169,13 +169,15 @@ async def test_servicer_tasks_spine(client, make_account, login, db):
         db, ic, sec, room, state="pushed",
         assigned=srv.id, accountable=srv.id)
     # The child rides the dispatch arc WorkOrder-carried (C4 emits NO child
-    # event for the pushed/accepted/in_progress hops — the established
-    # pattern in test_guest_dispatch / test_lifecycle_machines): position
-    # the child at ``in_progress`` so the WO→completed C4 hop can legally
-    # drive it → done_pending_confirm.
-    owned_child.state = "in_progress"
-    db.add(owned_child)
-    await db.flush()
+    # event for the pushed/accepted/in_progress hops — the WorkOrder carries
+    # the visible leg, E1 design). The child HOLDS at its REAL state
+    # (``routing``, set by ``_make_wo`` — the real intake/routing shape); NO
+    # test-side model write of a journey transition. On WO → completed the
+    # §7.2 C4 hop carries the routing-held child → done_pending_confirm
+    # (Spec §7.2 — NOT conditional on the child being in_progress). The
+    # accept→start→complete walk below drives the WO via the REAL servicer
+    # API.
+    assert owned_child.state == "routing"
     # Broadcast WO in srv's zone (sec) but owned by srv2 — so it is
     # genuinely CLAIMABLE for srv (not owned by srv); claiming it must NOT
     # change its accountable owner (D12).
