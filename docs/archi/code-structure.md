@@ -68,18 +68,27 @@ Conduit/
 │           └── supervisor/           # nav.tsx + index.tsx + hooks/   (hooks/ = TanStack Query)
 │
 └── dev-ops/
-    ├── terraform/                    # single env, parameterised for future envs (AD9)
-    │   ├── main.tf  variables.tf  outputs.tf
-    │   ├── network.tf                # VPC, public subnet, SG, EIP
-    │   ├── compute.tf                # ECS cluster, EC2 container instance, task def, service
-    │   ├── data.tf                   # RDS t4g.micro single-AZ + PITR
-    │   ├── edge.tf                   # Amplify app, /api/* reverse-proxy, custom domain
-    │   ├── secrets.tf                # SSM SecureString (OpenAI key, DB creds, JWT secret)
-    │   └── observability.tf          # CloudWatch logs/alarms, SNS
+    ├── terraform/                    # single env (dev); modules parameterised for future envs (AD9)
+    │   ├── bootstrap/                # LOCAL state, run once: KMS + S3 state
+    │   │                             #   bucket + DynamoDB lock + permissions
+    │   │                             #   boundary + ConduitTerraformOperator role
+    │   ├── modules/
+    │   │   ├── network/              # VPC, public + 2 private subnets, SGs, EIP
+    │   │   ├── compute/              # ECS cluster, ECR, EC2 + Caddy (user-data),
+    │   │   │                         #   API/migrate/seed task defs, service
+    │   │   ├── data/                 # RDS t4g.micro single-AZ + PITR
+    │   │   ├── dns/                  # Route53 zone + A api.<domain> → EIP
+    │   │   ├── secrets/              # SSM SecureString (OpenAI key, DB URL, JWT)
+    │   │   └── observability/        # CloudWatch alarms, SNS, timer-age metric
+    │   └── environments/
+    │       └── dev/                  # only env: S3 backend + assume_role;
+    │                                 #   composes modules; frontend_origin in
+    │                                 #   (Amplify is operator-owned, not in TF)
     └── scripts/                      # standard build/deploy ops, AWS-targeted
-        ├── build.sh  push.sh  deploy.sh
-        ├── migrate.sh                # one-off ECS task: alembic upgrade
-        └── secrets.sh  smoke.sh
+        ├── deploy.sh                 # ECR build/push + roll service (count 0→1)
+        ├── migrate.sh                # one-off ECS task: alembic upgrade head
+        ├── seed.sh                   # one-off ECS task: python -m conduit.seed
+        └── set-secrets.sh            # write operator secrets to SSM post-apply
 ```
 
 ## Deltas from a conventional multi-portal template

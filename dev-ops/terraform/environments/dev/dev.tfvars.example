@@ -1,0 +1,19 @@
+# Copy to dev.tfvars and fill in. dev.tfvars holds no secret VALUES (real
+# secrets go to SSM via scripts/set-secrets.sh) — only references and config.
+
+# From `terraform -chdir=../../bootstrap output`:
+terraform_role_arn       = "arn:aws:iam::<ACCOUNT_ID>:role/ConduitTerraformOperator"
+permissions_boundary_arn = "arn:aws:iam::<ACCOUNT_ID>:policy/ConduitPermissionsBoundary"
+
+aws_region = "us-east-1"
+
+# Registered domain — a hosted zone is created; delegate the domain's NS to it.
+domain_name   = "example.com"
+api_subdomain = "api"
+
+# Your (operator-owned) Amplify SPA origin — backend CORS allow-list.
+frontend_origin = "https://app.example.com"
+
+# Alarm + ACME contact.
+ops_email  = "ops@example.com"
+acme_email = "ops@example.com"

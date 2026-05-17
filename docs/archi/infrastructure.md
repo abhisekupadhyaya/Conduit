@@ -28,16 +28,22 @@ Decisions and their rationale: [decisions.md](decisions.md).
 | Layer | Resource |
 |---|---|
 | Network | 1 VPC, public subnet (EC2 + EIP), private subnet (RDS). SG: 80/443 to EC2, 5432 RDS-from-EC2 only. **No NAT** (egress via IGW). |
-| Compute | ECS cluster (free) · 1× `t4g.small` EC2 container instance · 1 task definition · ECS service desired-count 1 · ECR repo · Caddy on host · Elastic IP |
+| Compute | ECS cluster (free) · 1× `t4g.small` EC2 container instance · 3 task definitions (api · migrate · seed; engine is in-process in the api task) · ECS service (created at desired-count 0 — no image on first apply — then `deploy.sh` bumps to 1) · ECR repo · Caddy on host · Elastic IP |
 | Data | RDS PostgreSQL `t4g.micro`, single-AZ, gp3, automated backups + PITR. `sslmode=require`. |
 | Frontend | AWS Amplify Hosting (CDN + managed TLS + git CI/CD), `/api/*` reverse-proxy rewrite |
 | Secrets | SSM Parameter Store SecureString — OpenAI key, DB creds, JWT signing secret (Parameter Store standard tier is free) |
 | Observability | CloudWatch logs (7-day retention) + metrics + alarms · SNS → ops email |
 | DNS | Route 53 hosted zone · `A` record `api.<domain> → EIP` (also enables the ACME challenge) |
-| IaC | Terraform, single env, S3 state + DynamoDB lock table (IaC plumbing — the only DynamoDB anywhere) |
+| IaC | Terraform, single env (`dev`), `modules/` + `environments/dev/`. **Bootstrap** (local state) provisions the KMS key, S3 state bucket, DynamoDB lock table (the only DynamoDB anywhere), `ConduitPermissionsBoundary`, and the `ConduitTerraformOperator` role every later apply assumes. |
 
 **Prerequisite:** a registered domain (Amplify custom domain + the Caddy API
 endpoint both need it).
+
+**Deferred — application object storage.** The backend has S3 wiring
+(`boto3`, `CONDUIT_S3_*`, `integrations/storage`) but behaviour is stubbed and
+no code path exercises it in v1, so no application S3 bucket is provisioned.
+Re-introducing it is an additive change: a private bucket + a scoped policy on
+the ECS task role. Tracked so the gap is explicit, not silent.
 
 ## SSL / TLS
 
