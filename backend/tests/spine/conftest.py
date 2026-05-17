@@ -90,10 +90,10 @@ def fake_llm(monkeypatch):
     fakes in test_triage.py / test_intake_service.py."""
     state = {"classify": None, "ground": None}
 
-    async def c(t, cat):
+    async def c(t, cat, history: str = ""):
         return await state["classify"](t, cat)
 
-    async def g(q, ctx):
+    async def g(q, ctx, history: str = ""):
         return await state["ground"](q, ctx)
 
     monkeypatch.setattr(llm, "classify", c)
