@@ -28,11 +28,13 @@ from conduit.core.exceptions import ConflictError
 from conduit.shared.domain import lifecycle, recommendation, routing
 from conduit.shared.events import writer
 from conduit.shared.models import (ChildSubRequest, Escalation, IssueCode,
-                                   RecApprove, RecBroadcast, RecDeny,
-                                   RecExtendSla, RecReassign, RecRelocate,
-                                   Recommendation, Request, Room, Roster,
-                                   RosterAssignment, Section, SLAPreset,
-                                   StaffProfile, Stay, WorkOrder)
+                                   NoDispatchResolution,
+                                   RecApplyReservationMutation, RecApprove,
+                                   RecBroadcast, RecDeny, RecExtendSla,
+                                   RecReassign, RecRelocate, Recommendation,
+                                   Request, Room, Roster, RosterAssignment,
+                                   Section, SLAPreset, StaffProfile, Stay,
+                                   WorkOrder)
 from conduit.shared.models import EscalationLadder as _EscalationLadder
 
 # Named fallback (D9) — used ONLY when the active SLAPreset chain is genuinely
@@ -77,6 +79,9 @@ _REC_DETAIL = {
         extend_seconds=p["extend_seconds"]),
     "approve": lambda eid, p: RecApprove(recommendation_escalation_id=eid),
     "deny": lambda eid, p: RecDeny(recommendation_escalation_id=eid),
+    "apply_reservation_mutation": lambda eid, p: RecApplyReservationMutation(
+        recommendation_escalation_id=eid,
+        field=p["field"], requested_value=p["requested_value"]),
 }
 
 
@@ -199,8 +204,10 @@ async def _assemble_context(s: AsyncSession, child: ChildSubRequest,
         return {"available_room_id": ctx.get("available_room_id"),
                 "extend_seconds": extend}
 
-    # triage_flag — the flag verdict (D5/D24).
-    return {"verdict": ctx.get("verdict")}
+    # triage_flag — the flag verdict (D5/D24) + the D24 extracted target
+    # (persisted at intake on the child; the LLM is never re-invoked here).
+    return {"verdict": ctx.get("verdict"),
+            "requested_checkout": getattr(child, "requested_checkout", None)}
 
 
 async def open_escalation(s: AsyncSession, child: ChildSubRequest,
@@ -362,6 +369,12 @@ async def _resolved_action(s: AsyncSession, esc: Escalation, outcome: str,
                 RecExtendSla.recommendation_escalation_id == esc.id)
             )).scalar_one()
             return act, {"extend_seconds": d.extend_seconds}
+        if act == "apply_reservation_mutation":
+            d = (await s.execute(sa.select(RecApplyReservationMutation).where(
+                RecApplyReservationMutation.recommendation_escalation_id
+                == esc.id))).scalar_one()
+            return act, {"field": d.field,
+                         "requested_value": d.requested_value}
         return act, {}  # approve / deny — no params
     # edited / overridden — the supervisor supplies the typed action.
     if action is None:
