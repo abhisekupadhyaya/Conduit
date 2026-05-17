@@ -5,7 +5,6 @@ import {
   Settings2Icon,
   BookOpenIcon,
   UsersIcon,
-  BarChart3Icon,
 } from "lucide-react"
 import type { NavConfig } from "@/components/layout/nav-config"
 
@@ -53,10 +52,5 @@ export const supervisorNav: NavConfig = {
     { title: "Servicers", url: "/supervisor/accounts/servicers", icon: <UsersIcon /> },
     { title: "Guests", url: "/supervisor/accounts/guests", icon: <UsersIcon /> },
     { title: "Settings", url: "/supervisor/settings", icon: <Settings2Icon /> },
-    {
-      title: "Analytics",
-      url: "/supervisor/analytics",
-      icon: <BarChart3Icon />,
-    },
   ],
 }
