@@ -28,12 +28,11 @@ terraform {
 provider "aws" {
   region = var.aws_region
 
-  default_tags {
-    tags = {
-      Project   = "conduit"
-      ManagedBy = "terraform-bootstrap"
-    }
-  }
+  # No default_tags here: tagging the IAM permissions-boundary policy would
+  # require iam:TagPolicy on the human bootstrap principal. Bootstrap creates
+  # only state plumbing + the operator role — tags add no value and would
+  # widen the one manual IAM grant. (Resource tagging resumes in
+  # environments/dev, run as the operator role.)
 }
 
 data "aws_caller_identity" "current" {}

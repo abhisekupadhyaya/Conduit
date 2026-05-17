@@ -17,7 +17,8 @@ source "${SCRIPT_DIR}/lib.sh"
 ENV="${1:-dev}"
 conduit::need aws; conduit::need jq
 
-CTX="$(conduit::context "${ENV}")"
+CTX="$(conduit::context "${ENV}")"   # reads S3 state with caller creds
+conduit::assume_operator              # ssm:PutParameter lives on the operator role
 REGION="$(jq -r .region <<<"${CTX}")"
 PREFIX="$(jq -r .ssm_path_prefix <<<"${CTX}")"
 

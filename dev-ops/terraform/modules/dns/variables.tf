@@ -1,15 +1,10 @@
 variable "domain_name" {
-  description = "Registered domain hosting the zone (prerequisite)."
+  description = "Existing Route 53 hosted zone (e.g. narv.ai)."
   type        = string
 }
 
 variable "api_subdomain" {
-  description = "Subdomain label for the backend API endpoint."
+  description = "Subdomain prefix for the backend API endpoint (e.g. api.conduit)."
   type        = string
   default     = "api"
-}
-
-variable "eip_public_ip" {
-  description = "Elastic IP the api.<domain> A record points at."
-  type        = string
 }

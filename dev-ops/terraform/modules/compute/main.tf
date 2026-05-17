@@ -1,21 +1,13 @@
 # -----------------------------------------------------------------------------
-# Conduit — Compute (AD1 ECS-on-EC2, AD2 Caddy on host, AD4 engine in-process)
+# Conduit — Compute (ECS Fargate + ALB + ACM)
 #
-# A single t4g.small (Graviton/ARM64) EC2 instance registered to an ECS
-# cluster. The instance also runs Caddy, which terminates TLS (Let's Encrypt,
-# auto-renew) and reverse-proxies api.<domain> -> the task on a static host
-# port over loopback. No load balancer; the Elastic IP is the stable address.
-#
-# Three task definitions share one image: the API (engine runs in-process),
-# a one-off Alembic migration task, and a one-off supervisor-seed task.
+# Pivoted from ECS-on-EC2 + Caddy: no EC2 host, no user-data, no Let's Encrypt.
+# An ALB terminates TLS with the AWS-managed ACM cert and forwards to Fargate
+# tasks (awsvpc, ARM64 to match the pushed image). One image, three task
+# defs: API (engine in-process, AD4), one-off migrate, one-off seed.
 # -----------------------------------------------------------------------------
 
 data "aws_region" "current" {}
-
-# ECS-optimized Amazon Linux 2023 for ARM64 (t4g = Graviton).
-data "aws_ssm_parameter" "ecs_ami" {
-  name = "/aws/service/ecs/optimized-ami/amazon-linux-2023/arm64/recommended/image_id"
-}
 
 resource "aws_ecs_cluster" "this" {
   name = "${var.name_prefix}-cluster"
@@ -50,7 +42,7 @@ resource "aws_cloudwatch_log_group" "backend" {
   retention_in_days = 7
 }
 
-# --- IAM: ECS execution role (pull image, write logs, read SSM secrets) ----
+# --- IAM -------------------------------------------------------------------
 
 data "aws_iam_policy_document" "ecs_assume" {
   statement {
@@ -98,8 +90,6 @@ resource "aws_iam_role_policy" "ecs_execution_ssm" {
   })
 }
 
-# --- IAM: ECS task role (application runtime) ------------------------------
-
 resource "aws_iam_role" "ecs_task" {
   name                 = "${var.name_prefix}-ecs-task"
   assume_role_policy   = data.aws_iam_policy_document.ecs_assume.json
@@ -110,65 +100,72 @@ resource "aws_iam_role" "ecs_task" {
 # stubbed and no code path exercises CONDUIT_S3_*. When storage lands, attach
 # a scoped s3 policy to this role + provision the bucket (additive change).
 
-# --- IAM: EC2 container instance role --------------------------------------
+# --- ALB -------------------------------------------------------------------
 
-data "aws_iam_policy_document" "ec2_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["ec2.amazonaws.com"]
+resource "aws_lb" "this" {
+  name               = "${var.name_prefix}-alb"
+  load_balancer_type = "application"
+  internal           = false
+  subnets            = var.public_subnet_ids
+  security_groups    = [var.alb_security_group_id]
+}
+
+resource "aws_lb_target_group" "api" {
+  name        = "${var.name_prefix}-api"
+  port        = var.container_port
+  protocol    = "HTTP"
+  vpc_id      = var.vpc_id
+  target_type = "ip" # required for awsvpc/Fargate
+
+  health_check {
+    path     = "/"
+    protocol = "HTTP"
+    # Endpoints are stubs in v1; any HTTP response means the app is up.
+    matcher  = "200-499"
+    interval = 30
+    timeout  = 5
+  }
+}
+
+resource "aws_lb_listener" "https" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = 443
+  protocol          = "HTTPS"
+  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn   = var.certificate_arn
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.api.arn
+  }
+}
+
+resource "aws_lb_listener" "http_redirect" {
+  load_balancer_arn = aws_lb.this.arn
+  port              = 80
+  protocol          = "HTTP"
+
+  default_action {
+    type = "redirect"
+    redirect {
+      port        = "443"
+      protocol    = "HTTPS"
+      status_code = "HTTP_301"
     }
   }
 }
 
-resource "aws_iam_role" "ec2_instance" {
-  name                 = "${var.name_prefix}-ec2-instance"
-  assume_role_policy   = data.aws_iam_policy_document.ec2_assume.json
-  permissions_boundary = var.permissions_boundary_arn
-}
+# A-alias: api.<sub>.<zone> -> ALB (zone is the existing one from the dns module)
+resource "aws_route53_record" "api" {
+  zone_id = var.zone_id
+  name    = var.api_fqdn
+  type    = "A"
 
-resource "aws_iam_role_policy_attachment" "ec2_ecs" {
-  role       = aws_iam_role.ec2_instance.name
-  policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role"
-}
-
-resource "aws_iam_instance_profile" "ec2_instance" {
-  name = "${var.name_prefix}-ec2-instance"
-  role = aws_iam_role.ec2_instance.name
-}
-
-# --- EC2 container instance + Caddy ---------------------------------------
-
-locals {
-  user_data = base64encode(templatefile("${path.module}/user-data.sh.tftpl", {
-    cluster_name = aws_ecs_cluster.this.name
-    api_fqdn     = var.api_fqdn
-    acme_email   = var.acme_email
-    host_port    = var.host_port
-  }))
-}
-
-resource "aws_instance" "container" {
-  ami                    = data.aws_ssm_parameter.ecs_ami.value
-  instance_type          = var.instance_type
-  subnet_id              = var.public_subnet_id
-  vpc_security_group_ids = [var.ec2_security_group_id]
-  iam_instance_profile   = aws_iam_instance_profile.ec2_instance.name
-  user_data_base64       = local.user_data
-
-  root_block_device {
-    volume_size = 30
-    volume_type = "gp3"
-    encrypted   = true
+  alias {
+    name                   = aws_lb.this.dns_name
+    zone_id                = aws_lb.this.zone_id
+    evaluate_target_health = true
   }
-
-  tags = { Name = "${var.name_prefix}-container" }
-}
-
-resource "aws_eip_association" "container" {
-  instance_id   = aws_instance.container.id
-  allocation_id = var.eip_allocation_id
 }
 
 # --- Task definitions ------------------------------------------------------
@@ -183,7 +180,6 @@ locals {
     }
   }
 
-  # SSM-injected secrets, common to all task defs that talk to the DB.
   db_secrets = [
     { name = "CONDUIT_DATABASE_URL", valueFrom = var.secret_names.database_url },
   ]
@@ -208,16 +204,26 @@ locals {
     { name = "CONDUIT_ENGINE_ENABLED", value = "true" },
     { name = "CONDUIT_ENGINE_POLL_SECONDS", value = "10" },
   ]
+
+  runtime_platform = {
+    operating_system_family = "LINUX"
+    cpu_architecture        = "ARM64" # image was built --platform linux/arm64
+  }
 }
 
 resource "aws_ecs_task_definition" "api" {
   family                   = "${var.name_prefix}-api"
-  requires_compatibilities = ["EC2"]
-  network_mode             = "bridge"
-  cpu                      = var.task_cpu
-  memory                   = var.task_memory
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = var.api_cpu
+  memory                   = var.api_memory
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
+
+  runtime_platform {
+    operating_system_family = local.runtime_platform.operating_system_family
+    cpu_architecture        = local.runtime_platform.cpu_architecture
+  }
 
   container_definitions = jsonencode([{
     name             = "api"
@@ -225,20 +231,24 @@ resource "aws_ecs_task_definition" "api" {
     essential        = true
     environment      = local.base_env
     secrets          = local.api_secrets
-    portMappings     = [{ containerPort = var.host_port, hostPort = var.host_port, protocol = "tcp" }]
+    portMappings     = [{ containerPort = var.container_port, protocol = "tcp" }]
     logConfiguration = local.log_config
   }])
 }
 
-# One-off: alembic upgrade head (run via scripts/migrate.sh).
 resource "aws_ecs_task_definition" "migrate" {
   family                   = "${var.name_prefix}-migrate"
-  requires_compatibilities = ["EC2"]
-  network_mode             = "bridge"
-  cpu                      = var.task_cpu
-  memory                   = var.task_memory
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = var.oneoff_cpu
+  memory                   = var.oneoff_memory
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
+
+  runtime_platform {
+    operating_system_family = local.runtime_platform.operating_system_family
+    cpu_architecture        = local.runtime_platform.cpu_architecture
+  }
 
   container_definitions = jsonencode([{
     name             = "migrate"
@@ -251,15 +261,19 @@ resource "aws_ecs_task_definition" "migrate" {
   }])
 }
 
-# One-off: bootstrap supervisor seed (run via scripts/seed.sh).
 resource "aws_ecs_task_definition" "seed" {
   family                   = "${var.name_prefix}-seed"
-  requires_compatibilities = ["EC2"]
-  network_mode             = "bridge"
-  cpu                      = var.task_cpu
-  memory                   = var.task_memory
+  requires_compatibilities = ["FARGATE"]
+  network_mode             = "awsvpc"
+  cpu                      = var.oneoff_cpu
+  memory                   = var.oneoff_memory
   execution_role_arn       = aws_iam_role.ecs_execution.arn
   task_role_arn            = aws_iam_role.ecs_task.arn
+
+  runtime_platform {
+    operating_system_family = local.runtime_platform.operating_system_family
+    cpu_architecture        = local.runtime_platform.cpu_architecture
+  }
 
   container_definitions = jsonencode([{
     name             = "seed"
@@ -273,24 +287,33 @@ resource "aws_ecs_task_definition" "seed" {
 }
 
 # --- Service ---------------------------------------------------------------
-# Starts at desired_count = 0: first apply has no image in ECR yet. After
-# scripts/deploy.sh pushes an image it bumps the count to 1 (the "image
-# bootstrap" decision). Terraform ignores desired_count thereafter so the
-# script owns it.
+# Starts at desired_count = 0 (no image on first apply); scripts/deploy.sh
+# pushes the image and bumps to 1. Terraform ignores desired_count after.
 
 resource "aws_ecs_service" "api" {
   name            = "${var.name_prefix}-api"
   cluster         = aws_ecs_cluster.this.id
   task_definition = aws_ecs_task_definition.api.arn
   desired_count   = var.desired_count
-  launch_type     = "EC2"
+  launch_type     = "FARGATE"
 
-  deployment_minimum_healthy_percent = 0
-  deployment_maximum_percent         = 100
+  network_configuration {
+    subnets          = var.public_subnet_ids
+    security_groups  = [var.task_security_group_id]
+    assign_public_ip = true # public subnet + IGW egress (no NAT)
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.api.arn
+    container_name   = "api"
+    container_port   = var.container_port
+  }
+
+  health_check_grace_period_seconds = 60
 
   lifecycle {
     ignore_changes = [desired_count]
   }
 
-  depends_on = [aws_instance.container]
+  depends_on = [aws_lb_listener.https]
 }

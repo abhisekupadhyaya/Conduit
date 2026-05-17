@@ -1,24 +1,16 @@
 output "api_fqdn" {
-  description = "Backend endpoint Caddy serves over TLS."
-  value       = module.dns.api_fqdn
+  description = "Backend endpoint, served over TLS by the ALB (ACM cert)."
+  value       = "https://${module.dns.api_fqdn}"
 }
 
-output "name_servers" {
-  description = "Delegate the registered domain to these (manual, one-time)."
-  value       = module.dns.name_servers
-}
-
-output "eip_public_ip" {
-  value = module.network.eip_public_ip
+output "alb_dns_name" {
+  description = "ALB DNS name (the api.<...> A-alias points here)."
+  value       = module.compute.alb_dns_name
 }
 
 output "ecr_repository_url" {
   value = module.compute.ecr_repository_url
 }
-
-# --- Ready-to-run helper commands -----------------------------------------
-# Mirrors the "one command takes care of the rest" UX. Fill <REGION> from
-# aws_region if you did not configure a default profile region.
 
 output "next_steps" {
   description = "Run these in order after `terraform apply`."
@@ -31,7 +23,7 @@ output "next_steps" {
 }
 
 output "deploy_context" {
-  description = "Values the scripts consume."
+  description = "Values the scripts consume (Fargate run-task needs subnets + SG)."
   value = {
     region          = var.aws_region
     cluster         = module.compute.cluster_name
@@ -42,5 +34,7 @@ output "deploy_context" {
     seed_task       = module.compute.seed_task_family
     ssm_path_prefix = module.secrets.path_prefix
     log_group       = module.compute.log_group
+    subnets         = join(",", module.network.public_subnet_ids)
+    security_group  = module.network.task_security_group_id
   }
 }

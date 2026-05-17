@@ -1,12 +1,13 @@
 output "api_fqdn" {
-  value = aws_route53_record.api.name
+  value = local.fqdn
 }
 
 output "zone_id" {
-  value = aws_route53_zone.this.zone_id
+  description = "Existing hosted zone id — compute creates the ALB A-alias here."
+  value       = data.aws_route53_zone.this.zone_id
 }
 
-output "name_servers" {
-  description = "Delegate the registered domain to these NS records (manual, one-time)."
-  value       = aws_route53_zone.this.name_servers
+output "certificate_arn" {
+  description = "Validated ACM cert for the API FQDN (consumed by the ALB HTTPS listener)."
+  value       = aws_acm_certificate_validation.api.certificate_arn
 }

@@ -8,6 +8,8 @@
         "ec2:*",
         "ecs:*",
         "ecr:*",
+        "elasticloadbalancing:*",
+        "acm:*",
         "rds:*",
         "ssm:*",
         "logs:*",
@@ -56,6 +58,9 @@
         "iam:CreateInstanceProfile",
         "iam:DeleteInstanceProfile",
         "iam:GetInstanceProfile",
+        "iam:TagInstanceProfile",
+        "iam:UntagInstanceProfile",
+        "iam:ListInstanceProfileTags",
         "iam:AddRoleToInstanceProfile",
         "iam:RemoveRoleFromInstanceProfile",
         "iam:CreateServiceLinkedRole"

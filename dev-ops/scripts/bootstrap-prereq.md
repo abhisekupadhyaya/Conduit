@@ -20,10 +20,17 @@ by `ConduitPermissionsBoundary`).
       "Sid": "BootstrapIAM",
       "Effect": "Allow",
       "Action": [
-        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole", "iam:TagRole",
+        "iam:CreateRole", "iam:DeleteRole", "iam:GetRole",
+        "iam:TagRole", "iam:UntagRole", "iam:ListRoleTags",
         "iam:PutRolePolicy", "iam:GetRolePolicy", "iam:DeleteRolePolicy",
+        "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
+        "iam:AttachRolePolicy", "iam:DetachRolePolicy",
+        "iam:ListInstanceProfilesForRole",
         "iam:CreatePolicy", "iam:DeletePolicy", "iam:GetPolicy",
         "iam:GetPolicyVersion", "iam:ListPolicyVersions",
+        "iam:CreatePolicyVersion", "iam:DeletePolicyVersion",
+        "iam:ListEntitiesForPolicy",
+        "iam:TagPolicy", "iam:UntagPolicy", "iam:ListPolicyTags",
         "iam:PutRolePermissionsBoundary", "iam:UpdateAssumeRolePolicy"
       ],
       "Resource": [
@@ -48,3 +55,12 @@ by `ConduitPermissionsBoundary`).
 ```
 
 Adjust the region in `BootstrapStateBackend` if you change `aws_region`.
+
+> **Note.** The IAM action list is exactly what the Terraform AWS provider
+> calls across the role/policy lifecycle (it reads inline + attached policies
+> and instance profiles after every create/refresh). Bootstrap is a one-time
+> privileged step; if scoping this policy precisely is not worth it for your
+> account, running bootstrap once as an existing **admin/`IAMFullAccess`**
+> identity is a legitimate alternative — the security model lives in the
+> `ConduitTerraformOperator` role + `ConduitPermissionsBoundary` it creates,
+> **not** in starving the one-time bootstrap principal.

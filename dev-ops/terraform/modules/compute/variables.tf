@@ -6,36 +6,40 @@ variable "env" {
   type = string
 }
 
-variable "public_subnet_id" {
+variable "vpc_id" {
   type = string
 }
 
-variable "ec2_security_group_id" {
+variable "public_subnet_ids" {
+  description = "Public subnets for the ALB and the Fargate tasks (egress via IGW, no NAT)."
+  type        = list(string)
+}
+
+variable "alb_security_group_id" {
   type = string
 }
 
-variable "eip_allocation_id" {
+variable "task_security_group_id" {
   type = string
 }
 
-variable "permissions_boundary_arn" {
-  description = "ConduitPermissionsBoundary — applied to every role this module creates."
+variable "certificate_arn" {
+  description = "Validated ACM cert ARN for the API FQDN (from the dns module)."
+  type        = string
+}
+
+variable "zone_id" {
+  description = "Existing Route 53 zone id (from the dns module) for the ALB A-alias."
   type        = string
 }
 
 variable "api_fqdn" {
-  description = "api.<domain> — the host Caddy obtains a cert for and proxies."
+  description = "Fully-qualified API hostname, e.g. api.conduit.narv.ai."
   type        = string
-}
-
-variable "acme_email" {
-  description = "Optional contact email for Let's Encrypt. Empty = anonymous."
-  type        = string
-  default     = ""
 }
 
 variable "frontend_origin" {
-  description = "Operator-owned Amplify SPA origin — written into CONDUIT_CORS_ORIGINS (AD6 divergence: backend owns CORS)."
+  description = "Operator-owned SPA origin -> CONDUIT_CORS_ORIGINS (backend owns CORS, AD6)."
   type        = string
 }
 
@@ -49,37 +53,46 @@ variable "secret_names" {
   type        = map(string)
 }
 
-variable "instance_type" {
+variable "permissions_boundary_arn" {
+  type = string
+}
+
+variable "container_port" {
+  type    = number
+  default = 8000
+}
+
+variable "image_tag" {
   type    = string
-  default = "t4g.small"
+  default = "latest"
 }
 
-variable "host_port" {
-  description = "Static host port the API task binds; Caddy proxies localhost:<port>."
+variable "desired_count" {
+  description = "ECS service desired count. 0 on first apply (no image yet); deploy.sh bumps to 1."
   type        = number
-  default     = 8000
+  default     = 0
 }
 
-variable "task_cpu" {
+variable "api_cpu" {
+  description = "Fargate CPU units for the API task (valid Fargate combo with api_memory)."
+  type        = number
+  default     = 512
+}
+
+variable "api_memory" {
   type    = number
   default = 1024
 }
 
-variable "task_memory" {
-  type    = number
-  default = 1536
-}
-
-variable "image_tag" {
-  description = "ECR image tag the task definitions run."
-  type        = string
-  default     = "latest"
-}
-
-variable "desired_count" {
-  description = "ECS service desired count. 0 on first apply (no image yet); scripts/deploy.sh bumps to 1."
+variable "oneoff_cpu" {
+  description = "Smaller reservation for one-off migrate/seed tasks."
   type        = number
-  default     = 0
+  default     = 256
+}
+
+variable "oneoff_memory" {
+  type    = number
+  default = 512
 }
 
 variable "openai_model" {

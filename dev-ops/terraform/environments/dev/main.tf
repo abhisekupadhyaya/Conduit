@@ -70,19 +70,20 @@ module "dns" {
   source        = "../../modules/dns"
   domain_name   = var.domain_name
   api_subdomain = var.api_subdomain
-  eip_public_ip = module.network.eip_public_ip
 }
 
 module "compute" {
   source                   = "../../modules/compute"
   name_prefix              = local.name_prefix
   env                      = var.env
-  public_subnet_id         = module.network.public_subnet_id
-  ec2_security_group_id    = module.network.ec2_security_group_id
-  eip_allocation_id        = module.network.eip_allocation_id
-  permissions_boundary_arn = var.permissions_boundary_arn
+  vpc_id                   = module.network.vpc_id
+  public_subnet_ids        = module.network.public_subnet_ids
+  alb_security_group_id    = module.network.alb_security_group_id
+  task_security_group_id   = module.network.task_security_group_id
+  certificate_arn          = module.dns.certificate_arn
+  zone_id                  = module.dns.zone_id
   api_fqdn                 = module.dns.api_fqdn
-  acme_email               = var.acme_email
+  permissions_boundary_arn = var.permissions_boundary_arn
   frontend_origin          = var.frontend_origin
   secret_parameter_arns    = module.secrets.parameter_arns
   secret_names             = module.secrets.names

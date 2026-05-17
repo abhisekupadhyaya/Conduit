@@ -26,6 +26,6 @@ output "log_group" {
   value = aws_cloudwatch_log_group.backend.name
 }
 
-output "instance_id" {
-  value = aws_instance.container.id
+output "alb_dns_name" {
+  value = aws_lb.this.dns_name
 }

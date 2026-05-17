@@ -16,7 +16,8 @@ ENV="${1:-dev}"
 TAG="${2:-latest}"
 conduit::need aws; conduit::need docker; conduit::need jq
 
-CTX="$(conduit::context "${ENV}")"
+CTX="$(conduit::context "${ENV}")"   # reads S3 state with caller creds
+conduit::assume_operator              # ECR/ECS perms live on the operator role
 REGION="$(jq -r .region <<<"${CTX}")"
 CLUSTER="$(jq -r .cluster <<<"${CTX}")"
 SERVICE="$(jq -r .service <<<"${CTX}")"

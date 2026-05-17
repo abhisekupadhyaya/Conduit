@@ -33,11 +33,6 @@ variable "frontend_origin" {
   type        = string
 }
 
-variable "acme_email" {
-  description = "Optional Let's Encrypt contact email."
-  type        = string
-  default     = ""
-}
 
 variable "ops_email" {
   description = "Address subscribed to the CloudWatch alarm SNS topic (confirm the subscription email)."
