@@ -30,3 +30,14 @@ def test_ck_event_type_widened():
     ck = next(c for c in ev.__table__.constraints
               if getattr(c, "name", "") == "ck_event_type")
     assert "reservation_mutated" in str(ck.sqltext)
+
+
+def test_child_has_requested_checkout_nullable():
+    col = m.ChildSubRequest.__table__.columns["requested_checkout"]
+    assert col.nullable is True
+
+
+def test_ndr_mode_widened():
+    ck = next(c for c in m.NoDispatchResolution.__table__.constraints
+              if getattr(c, "name", "") == "ck_ndr_mode")
+    assert "reservation_mutation" in str(ck.sqltext)
