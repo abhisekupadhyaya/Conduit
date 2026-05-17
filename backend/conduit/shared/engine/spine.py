@@ -429,6 +429,41 @@ async def _execute_action(s: AsyncSession, esc: Escalation,
                   fire_at=now + dt.timedelta(seconds=int(secs)))
         return
 
+    if act == "apply_reservation_mutation":
+        # D24 (triage_flag): resolve the Stay via the established
+        # child→Request→Stay chain (engine-local read; Request/Stay already
+        # imported — mirrors ``_property_id_for_child``'s select_from/join
+        # idiom). Capture the old value BEFORE the write for the append-only
+        # event, then mutate the booking field in place.
+        stay = (await s.execute(
+            sa.select(Stay)
+            .select_from(Request)
+            .join(Stay, Stay.id == Request.stay_id)
+            .where(Request.id == child.request_id)
+        )).scalar_one()
+        old = stay.check_out
+        new = params["requested_value"]
+        stay.check_out = new
+        s.add(stay)
+        await writer.emit_reservation_mutated(
+            s, stay.id, params["field"], old, new, actor_id)
+        # Closure-lite reuse (D8 — no new child states / endpoints): record
+        # the outcome as a NoDispatchResolution and advance triaged→answered.
+        # The child→answered legacy writer path requires the resolution row
+        # FK (``EventChildAnswered.resolution_child_id`` NOT NULL → the
+        # NoDispatchResolution PK is ``child_id``), so add+flush it FIRST and
+        # pass ``resolution_child_id=child.id`` — the exact idiom the merged
+        # ``guest.services.nodispatch.resolve`` uses. The guest's existing
+        # confirm endpoint then closes it (answered→closed).
+        s.add(NoDispatchResolution(
+            child_id=child.id, mode="reservation_mutation",
+            answer_text=f"Your checkout is now {new:%Y-%m-%d %H:%M}."))
+        await s.flush()
+        await lifecycle.transition(s, child, "answered",
+                                   actor_account_id=actor_id,
+                                   resolution_child_id=child.id)
+        return
+
     # relocate is effected by the C4 escalation→relocate hop (real
     # relocate_stay + glitch close) driven by the single escalation
     # transition below — NOTHING to do here.
