@@ -73,7 +73,12 @@ CORS instead of an Amplify same-origin proxy).
 
 ## Status
 
-Scaffolding. The app composes and smoke-tests; every endpoint and
-domain/engine function raises `NotImplementedError`, and ORM models are
-intentionally empty until the data model is hardened (it is marked *subject to
-change*). Structure first, behaviour next.
+Core implemented and tested. The in-process timer engine
+(`shared/engine/`), the dispatch & escalation spine, routing, triage
+classification (`shared/domain/`), staffing/availability, and the auth slice
+are built; spine ORM models exist; `tests/` includes a scripted full-journey
+end-to-end plus structural auth/event-log guards. A few paths remain
+deliberate `NotImplementedError` stubs — multi-part decomposition
+(`triage.decompose`/`triage`; `triage.classify` *is* implemented), the
+servicer queue endpoint, and parts of `supervisor/api/setup.py`. The data
+model is still marked *subject to change* where flagged.

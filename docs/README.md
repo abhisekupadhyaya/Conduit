@@ -31,6 +31,14 @@ evolve** during build.
 - [datamodels/schema-draft.md](datamodels/schema-draft.md) — tentative
   field-level sketch + a full decision-coverage matrix
 
+### [superpowers/](superpowers/) — Per-slice design records
+
+How each slice was specced and built (not authoritative for product scope).
+
+- `superpowers/specs/` — per-slice design specs (auth, dispatch spine,
+  staffing, stay-binding, conversation/answer-action, deployment IaC)
+- `superpowers/plans/` — the matching implementation plans
+
 ## Reading order
 
 1. Product scope + decisions (D-series) — *the source of truth (with the

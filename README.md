@@ -14,19 +14,24 @@ layer that decided *who* does it and *when* is what Conduit replaces.
 
 ## Status
 
-**Scaffolding complete; behaviour not yet implemented.** The structure for
-both apps is in place and verified to build/run; endpoints and domain logic
-are stubs (`NotImplementedError`) and ORM models are intentionally empty until
-the data model is hardened (it is deliberately marked *subject to change*).
+**Core lifecycle is implemented and tested; behaviour is being filled in
+slice by slice.** The in-process timer engine, the dispatch & escalation
+spine, routing, triage classification, staffing/availability, and the auth
+slice are built and covered by an end-to-end test suite — including a
+scripted full-journey test and structural auth/event-log guards. ORM models
+for the spine are in place. A few paths remain deliberate
+`NotImplementedError` stubs (multi-part request decomposition, the servicer
+queue endpoint, parts of supervisor setup).
 
 | Area | State |
 |---|---|
 | Product scope & decisions | Defined (the source of truth) |
 | Infrastructure architecture | Converged — see [docs/archi/](docs/archi/) |
-| Data model | First draft, evolvable — see [docs/datamodels/](docs/datamodels/) |
-| Frontend | Scaffolded — builds clean (Vite/React/TS/Tailwind/shadcn) |
-| Backend | Scaffolded — composes & smoke-tests (FastAPI, engine in-process) |
-| Feature behaviour | Not implemented (stubs) |
+| Data model | Spine modelled; still evolvable — see [docs/datamodels/](docs/datamodels/) |
+| Frontend | Scaffolded + role-routed portals (Vite/React/TS/Tailwind/shadcn) |
+| Backend | Engine + dispatch spine + staffing + auth implemented (FastAPI, engine in-process) |
+| Deployment | Terraform IaC + deploy scripts — see [dev-ops/](dev-ops/) |
+| Feature behaviour | Largely implemented; a few documented stubs remain |
 
 ## Repository layout
 
@@ -37,7 +42,8 @@ backend/    FastAPI — 4 portal slices (guest/servicer/supervisor/public)
 frontend/   One React SPA — shared shell, role-routed per portal;
             all API via TanStack Query (auth is the only direct exception)
 docs/       architecture (archi/) + data models (datamodels/)
-dev-ops/    Terraform + scripts (AWS) — planned, not yet created
+            + superpowers/ (per-slice design specs & implementation plans)
+dev-ops/    Terraform IaC + deploy/migrate/seed/secrets scripts (AWS)
 ```
 
 Full intended structure and rationale:
