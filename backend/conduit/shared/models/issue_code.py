@@ -4,7 +4,7 @@ from __future__ import annotations
 import datetime as dt
 import uuid
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, String, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,6 +36,8 @@ class IssueCode(Base):
         Boolean, nullable=False, server_default="false")
     status: Mapped[str] = mapped_column(String, nullable=False,
                                         server_default="active")
+    sla_preset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("sla_preset.id"), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[dt.datetime] = mapped_column(

@@ -3,26 +3,33 @@ import { useAuth } from "@/auth/use-auth"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChatScroll } from "@/components/common/chat-scroll"
 import { Message } from "@/components/common/message"
-import { RequestReceipt } from "@/components/common/request-receipt"
 import { ChildStatusCard } from "@/components/common/child-status-card"
 import { Composer } from "@/components/common/composer"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState } from "@/components/common/error-state"
 import {
-  useConversation,
+  useDispatchCards,
   useSubmitRequest,
 } from "@/shell/guest/hooks/use-conversation"
 
 // The conversation IS the guest portal: ask + status + confirm.
 // Trust beat: the ambient is read from the auth context (useAuth), never
 // the query cache (the stay/binding rule). Instant-ack (Resolution C) is the
-// submit mutation's pending state — no polling, no extra endpoint.
+// submit mutation's pending state.
+//
+// F2 (Spec §10 Guest): GET /guest/requests serves the E1 dispatch status
+// cards (list[DispatchCardOut] — the dispatch router wins the path match).
+// The status surface is POLLED (AD7) via useDispatchCards on the merged
+// ['guest','requests'] key; ChildStatusCard renders the dispatch lifecycle
+// (states / named servicer D17 / revised_eta countdown D22 / glitch badge)
+// with the confirm/reopen/cancel control. Submit stays the instant-ack
+// no-dispatch path; the poll then reflects any dispatched child.
 export function GuestConversation() {
   const { user } = useAuth()
-  const conversation = useConversation()
+  const cards = useDispatchCards()
   const submit = useSubmitRequest()
 
-  const reqs = conversation.data ?? []
+  const items = cards.data ?? []
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
@@ -35,20 +42,20 @@ export function GuestConversation() {
         </p>
       </div>
 
-      {conversation.isLoading ? (
+      {cards.isLoading ? (
         <div className="flex-1 space-y-3 py-2">
           <Skeleton className="h-12 w-2/3" />
           <Skeleton className="ml-auto h-10 w-1/2" />
           <Skeleton className="h-16 w-3/4" />
         </div>
-      ) : conversation.isError ? (
+      ) : cards.isError ? (
         <div className="flex-1 py-2">
           <ErrorState
             title="Couldn’t load your conversation."
-            onRetry={conversation.refetch}
+            onRetry={cards.refetch}
           />
         </div>
-      ) : reqs.length === 0 && !submit.isPending ? (
+      ) : items.length === 0 && !submit.isPending ? (
         <div className="flex-1 py-2">
           <EmptyState
             title="No requests yet"
@@ -56,18 +63,13 @@ export function GuestConversation() {
           />
         </div>
       ) : (
-        <ChatScroll pinKey={`${reqs.length}:${submit.isPending}`}>
-          {reqs.map((r) => (
-            <div key={r.request_id} className="space-y-3">
-              <RequestReceipt children={r.children} />
-              {r.children.map((c, i) => (
-                <div key={c.child_id} className="space-y-1">
-                  <Message from="system" mark={i === 0}>
-                    {c.text}
-                  </Message>
-                  <ChildStatusCard child={c} />
-                </div>
-              ))}
+        <ChatScroll pinKey={`${items.length}:${submit.isPending}`}>
+          {items.map((c) => (
+            <div key={c.child_id} className="space-y-1">
+              {c.issue_label && (
+                <Message from="system">{c.issue_label}</Message>
+              )}
+              <ChildStatusCard card={c} />
             </div>
           ))}
           {submit.isPending && (

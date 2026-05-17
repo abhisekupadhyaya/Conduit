@@ -20,6 +20,14 @@ import { StaffPage } from "@/shell/supervisor/pages/staff"
 import { RostersPage } from "@/shell/supervisor/pages/rosters"
 import { KnowledgeBasePage } from "@/shell/supervisor/pages/knowledge-base"
 import { ProvisioningPage } from "@/shell/supervisor/pages/provisioning"
+// F4 (Spec §10 Supervisor): Decision Queue (act) + Awareness Stream
+// (watch) are DISTINCT routes (D2); Task Explorer is the D6 god-mode;
+// SLA/ladder Setup on the merged issue-code-form-dialog CONFIG idiom.
+import { DecisionsPage } from "@/shell/supervisor/pages/decisions"
+import { AwarenessPage } from "@/shell/supervisor/pages/awareness"
+import { TaskExplorerPage } from "@/shell/supervisor/pages/task-explorer"
+import { SlaPresetsPage } from "@/shell/supervisor/pages/sla-presets"
+import { EscalationLadderPage } from "@/shell/supervisor/pages/escalation-ladder"
 
 // One SPA, one shared shell, role-routed. Only the nav config differs.
 export default function App() {
@@ -49,6 +57,11 @@ export default function App() {
         }
       >
         <Route index element={<ServicerHome />} />
+        {/* F3: task-detail is a drill-in Sheet composed into the queue
+            index; this additive deep-link route renders the same Task
+            Queue screen so a /servicer/tasks/:woId URL resolves. Existing
+            servicer routes (index, settings) are untouched. */}
+        <Route path="tasks/:woId" element={<ServicerHome />} />
         <Route path="settings" element={<ServicerSettings />} />
       </Route>
 
@@ -60,7 +73,10 @@ export default function App() {
           </RequireAuth>
         }
       >
-        <Route index element={<SupervisorHome />} />
+        {/* F4: the index IS the Awareness Stream — watch-only, D2. The
+            old SupervisorHome placeholder is retained as the catch-all
+            below so no prior surface 404s. */}
+        <Route index element={<AwarenessPage />} />
         <Route path="settings" element={<SupervisorSettings />} />
         <Route path="accounts/servicers" element={<ManageServicers />} />
         <Route path="accounts/guests" element={<ManageGuests />} />
@@ -70,6 +86,13 @@ export default function App() {
         <Route path="setup/rosters" element={<RostersPage />} />
         <Route path="knowledge-base" element={<KnowledgeBasePage />} />
         <Route path="provisioning" element={<ProvisioningPage />} />
+        {/* F4 additive routes — Decisions (act) is DISTINCT from the
+            index Awareness (watch) per D2; Task Explorer is D6 god-mode;
+            SLA/ladder Setup on the CONFIG idiom. */}
+        <Route path="decisions" element={<DecisionsPage />} />
+        <Route path="tasks" element={<TaskExplorerPage />} />
+        <Route path="setup/sla" element={<SlaPresetsPage />} />
+        <Route path="setup/escalation" element={<EscalationLadderPage />} />
         {/* Remaining supervisor pages render here as they are built. */}
         <Route path="*" element={<SupervisorHome />} />
       </Route>

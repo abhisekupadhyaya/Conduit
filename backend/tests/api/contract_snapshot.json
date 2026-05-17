@@ -21,11 +21,27 @@
   ],
   [
     "GET",
+    "/api/servicer/tasks"
+  ],
+  [
+    "GET",
     "/api/supervisor/accounts"
   ],
   [
     "GET",
+    "/api/supervisor/awareness"
+  ],
+  [
+    "GET",
+    "/api/supervisor/children"
+  ],
+  [
+    "GET",
     "/api/supervisor/decisions"
+  ],
+  [
+    "GET",
+    "/api/supervisor/escalation-ladder"
   ],
   [
     "GET",
@@ -57,6 +73,10 @@
   ],
   [
     "GET",
+    "/api/supervisor/sla-presets"
+  ],
+  [
+    "GET",
     "/api/supervisor/staff"
   ],
   [
@@ -74,6 +94,10 @@
   [
     "PATCH",
     "/api/supervisor/accounts/{account_id}"
+  ],
+  [
+    "PATCH",
+    "/api/supervisor/escalation-ladder/{ladder_id}"
   ],
   [
     "PATCH",
@@ -101,6 +125,10 @@
   ],
   [
     "PATCH",
+    "/api/supervisor/sla-presets/{preset_id}"
+  ],
+  [
+    "PATCH",
     "/api/supervisor/staff/{account_id}/profile"
   ],
   [
@@ -125,6 +153,38 @@
   ],
   [
     "POST",
+    "/api/guest/requests/{child_id}/cancel"
+  ],
+  [
+    "POST",
+    "/api/guest/requests/{child_id}/confirm"
+  ],
+  [
+    "POST",
+    "/api/guest/requests/{child_id}/reopen"
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/accept"
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/claim"
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/complete"
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/raise"
+  ],
+  [
+    "POST",
+    "/api/servicer/tasks/{wo_id}/start"
+  ],
+  [
+    "POST",
     "/api/servicer/work-orders/{wo_id}/accept"
   ],
   [
@@ -137,7 +197,23 @@
   ],
   [
     "POST",
-    "/api/supervisor/decisions/{escalation_id}"
+    "/api/supervisor/children/{child_id}/cancel"
+  ],
+  [
+    "POST",
+    "/api/supervisor/children/{child_id}/reassign"
+  ],
+  [
+    "POST",
+    "/api/supervisor/children/{child_id}/takeover"
+  ],
+  [
+    "POST",
+    "/api/supervisor/decisions/{escalation_id}/resolve"
+  ],
+  [
+    "POST",
+    "/api/supervisor/escalation-ladder"
   ],
   [
     "POST",
@@ -162,6 +238,10 @@
   [
     "POST",
     "/api/supervisor/sections"
+  ],
+  [
+    "POST",
+    "/api/supervisor/sla-presets"
   ],
   [
     "POST",

@@ -154,6 +154,49 @@ async def seeded_guest_with_stay(db, make_account):
     return acc, ambient
 
 
+@pytest_asyncio.fixture()
+async def make_child(make_account):
+    """Async callable building the minimal valid FK chain
+    Property→Section→Room→Account→Stay→Request→ChildSubRequest via the real
+    models (same proven arrange as test_lifecycle.py / test_migration.py).
+    Returns the created ``ChildSubRequest``.
+
+    ``make_account`` (which commits) runs FIRST; the rest of the chain is
+    flushed (NOT committed) so the single outer savepoint rollback discards
+    it. Takes ``db`` as an argument (mirroring the test signatures) so it
+    binds to the same savepoint-isolated session the test uses."""
+    from conduit.shared.models import (ChildSubRequest, Property, Request,
+                                       Room, Section, Stay)
+
+    async def _make(db):
+        acc = await make_account("guest", f"g-{uuid.uuid4().hex[:8]}")
+        p = Property(name="T")
+        db.add(p)
+        await db.flush()
+        sec = Section(property_id=p.id, label="S")
+        db.add(sec)
+        await db.flush()
+        room = Room(section_id=sec.id, label="R")
+        db.add(room)
+        await db.flush()
+        now = dt.datetime.now(dt.timezone.utc)
+        stay = Stay(guest_account_id=acc.id, room_id=room.id,
+                    check_in=now, check_out=now + dt.timedelta(days=1),
+                    status="active")
+        db.add(stay)
+        await db.flush()
+        r = Request(guest_account_id=acc.id, stay_id=stay.id, raw_text="x")
+        db.add(r)
+        await db.flush()
+        c = ChildSubRequest(request_id=r.id, text="x", outcome="no_dispatch",
+                            state="intake")
+        db.add(c)
+        await db.flush()
+        return c
+
+    return _make
+
+
 @pytest.fixture(autouse=True)
 def _leak_sentinel():
     """Fallback that must never fire: savepoint rollback already guarantees a

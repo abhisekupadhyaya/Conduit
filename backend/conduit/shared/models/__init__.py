@@ -44,11 +44,51 @@ from conduit.shared.models.event import (
     EventAssignmentCreated,
     EventAssignmentUpdated,
     EventPresenceChanged,
+    EventWorkOrderCreated,
+    EventWorkOrderPushed,
+    EventWorkOrderBroadcast,
+    EventWorkOrderAccepted,
+    EventWorkOrderInProgress,
+    EventWorkOrderCompleted,
+    EventWorkOrderCancelled,
+    EventChildRouted,
+    EventChildDonePendingConfirm,
+    EventChildClosedConfirmed,
+    EventChildReopenedByGuest,
+    EventChildCancelled,
+    EventEscalationOpened,
+    EventEscalationResolved,
+    EventRecommendationCreated,
+    EventGlitchOpened,
+    EventGlitchClosed,
+    EventCrossDeptNotified,
+    EventTimerFired,
+    EventSlaPresetCreated,
+    EventSlaPresetUpdated,
+    EventEscalationLadderCreated,
+    EventEscalationLadderUpdated,
 )
 from conduit.shared.models.staff_profile import StaffProfile
 from conduit.shared.models.staff_skill import StaffSkill
 from conduit.shared.models.roster import Roster
 from conduit.shared.models.roster_assignment import RosterAssignment
+from conduit.shared.models.sla_preset import SLAPreset
+from conduit.shared.models.escalation_ladder import EscalationLadder
+from conduit.shared.models.work_order import WorkOrder
+from conduit.shared.models.timer import Timer
+from conduit.shared.models.escalation import Escalation
+from conduit.shared.models.recommendation import (
+    Recommendation,
+    RecReassign,
+    RecRelocate,
+    RecExtendSla,
+    RecApprove,
+    RecDeny,
+    RecBroadcast,
+)
+from conduit.shared.models.glitch import Glitch
+from conduit.shared.models.cross_dept_notification import CrossDeptNotification
+from conduit.shared.models.failed_transition import FailedTransition
 
 __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "IssueCode", "KBEntry", "Request", "ChildSubRequest",
@@ -61,4 +101,21 @@ __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "EventStaffSkillsSet", "EventRosterCreated", "EventRosterUpdated",
            "EventAssignmentCreated", "EventAssignmentUpdated",
            "EventPresenceChanged",
-           "StaffProfile", "StaffSkill", "Roster", "RosterAssignment"]
+           "EventWorkOrderCreated", "EventWorkOrderPushed",
+           "EventWorkOrderBroadcast", "EventWorkOrderAccepted",
+           "EventWorkOrderInProgress", "EventWorkOrderCompleted",
+           "EventWorkOrderCancelled", "EventChildRouted",
+           "EventChildDonePendingConfirm", "EventChildClosedConfirmed",
+           "EventChildReopenedByGuest", "EventChildCancelled",
+           "EventEscalationOpened", "EventEscalationResolved",
+           "EventRecommendationCreated", "EventGlitchOpened",
+           "EventGlitchClosed", "EventCrossDeptNotified",
+           "EventTimerFired", "EventSlaPresetCreated",
+           "EventSlaPresetUpdated", "EventEscalationLadderCreated",
+           "EventEscalationLadderUpdated",
+           "StaffProfile", "StaffSkill", "Roster", "RosterAssignment",
+           "SLAPreset", "EscalationLadder",
+           "WorkOrder", "Timer", "Escalation",
+           "Recommendation", "RecReassign", "RecRelocate", "RecExtendSla",
+           "RecApprove", "RecDeny", "RecBroadcast",
+           "Glitch", "CrossDeptNotification", "FailedTransition"]

@@ -12,7 +12,14 @@ Stall fires on whichever of the first two breaches first.
 """
 from __future__ import annotations
 
+import datetime as dt
+import uuid
 from enum import Enum
+
+from sqlalchemy import update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from conduit.shared.models import Timer
 
 
 class TimerType(str, Enum):
@@ -22,10 +29,24 @@ class TimerType(str, Enum):
     BACKSTOP_CYCLE = "backstop_cycle"
 
 
-def arm(subject_type: str, subject_id: str, timer_type: TimerType) -> None:
-    raise NotImplementedError
+_SUBJECT = {"child_id": "child_id", "work_order_id": "work_order_id",
+            "escalation_id": "escalation_id"}
 
 
-def cancel_for(subject_type: str, subject_id: str) -> None:
+async def arm(s: AsyncSession, subject_kind: str, subject_id: uuid.UUID,
+              timer_type: TimerType, *, fire_at: dt.datetime,
+              cycle: int | None = None) -> Timer:
+    col = _SUBJECT[subject_kind]
+    t = Timer(type=timer_type.value, fire_at=fire_at, cycle=cycle,
+              **{col: subject_id})
+    s.add(t)
+    return t
+
+
+async def cancel_for(s: AsyncSession, subject_kind: str,
+                     subject_id: uuid.UUID) -> None:
     """Cancel pending timers (cancel/modify, D37/D38)."""
-    raise NotImplementedError
+    col = _SUBJECT[subject_kind]
+    await s.execute(update(Timer)
+        .where(getattr(Timer, col) == subject_id, Timer.state == "pending")
+        .values(state="cancelled"))
