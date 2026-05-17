@@ -67,6 +67,7 @@ from conduit.shared.models.event import (
     EventSlaPresetUpdated,
     EventEscalationLadderCreated,
     EventEscalationLadderUpdated,
+    EventReservationMutated,
 )
 from conduit.shared.models.staff_profile import StaffProfile
 from conduit.shared.models.staff_skill import StaffSkill
@@ -113,7 +114,7 @@ __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "EventGlitchClosed", "EventCrossDeptNotified",
            "EventTimerFired", "EventSlaPresetCreated",
            "EventSlaPresetUpdated", "EventEscalationLadderCreated",
-           "EventEscalationLadderUpdated",
+           "EventEscalationLadderUpdated", "EventReservationMutated",
            "StaffProfile", "StaffSkill", "Roster", "RosterAssignment",
            "SLAPreset", "EscalationLadder",
            "WorkOrder", "Timer", "Escalation",
