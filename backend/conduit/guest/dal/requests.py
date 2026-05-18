@@ -10,9 +10,11 @@ from sqlalchemy.orm import aliased
 from conduit.shared.models import (
     Account,
     ChildSubRequest,
+    EventGuestRelocated,
     Glitch,
     IssueCode,
     Request,
+    Room,
     Stay,
     WorkOrder,
 )
@@ -50,6 +52,20 @@ async def list_dispatch_cards_for_active_stay(
     no flush, no commit.
     """
     srv = aliased(Account)
+    # Spec §7.4 / §9.3 / D22 — the deterministic "this stay was relocated"
+    # signal is the existence of the (already-emitted, never re-written)
+    # ``guest_relocated`` event for THIS stay (``relocate_stay`` mutates
+    # ``Stay.room_id`` AND appends exactly one ``EventGuestRelocated`` — the
+    # spine never writes a per-sibling row; the sibling re-resolves ambient
+    # room through the SAME ``child→Request→Stay`` chain). When it occurred
+    # the proactive value is the guest's CURRENT room label
+    # (``Stay.room_id`` → ``Room.label``, the re-bound room). Read-only,
+    # add-only; the double-scope security filter below is preserved verbatim.
+    relocated = (
+        select(EventGuestRelocated.stay_id)
+        .where(EventGuestRelocated.stay_id == Stay.id)
+        .exists()
+    )
     rows = (await s.execute(
         select(
             ChildSubRequest.id,
@@ -59,6 +75,8 @@ async def list_dispatch_cards_for_active_stay(
             IssueCode.label,
             srv.display_name,
             Glitch.id,
+            Room.label,
+            relocated,
         )
         .select_from(ChildSubRequest)
         .join(Request, Request.id == ChildSubRequest.request_id)
@@ -71,6 +89,7 @@ async def list_dispatch_cards_for_active_stay(
             (Glitch.child_id == ChildSubRequest.id)
             & (Glitch.state.in_(("open", "held_open"))),
         )
+        .outerjoin(Room, Room.id == Stay.room_id)
         .where(
             Request.guest_account_id == guest_account_id,
             Stay.status == "active",
@@ -85,7 +104,8 @@ async def list_dispatch_cards_for_active_stay(
     # falling back to the child state once the child itself advances
     # (done_pending_confirm → closed/reopened/cancelled).
     cards = []
-    for (cid, c_state, wo_state, revised_eta, label, srv_name, gid) in rows:
+    for (cid, c_state, wo_state, revised_eta, label, srv_name, gid,
+         room_label, was_relocated) in rows:
         state = wo_state if (wo_state is not None
                              and c_state == "routing") else c_state
         cards.append({
@@ -95,6 +115,9 @@ async def list_dispatch_cards_for_active_stay(
             "assigned_servicer_name": srv_name,
             "revised_eta": revised_eta,
             "glitch": gid is not None,
+            # D22 proactive: the new CURRENT room label iff this stay was
+            # relocated (a ``guest_relocated`` event exists), else None.
+            "relocated_to": room_label if was_relocated else None,
         })
     return cards
 

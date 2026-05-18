@@ -695,3 +695,75 @@ async def test_g1_escalation_ladder_partial_unique(db, make_account):
     db.add(_ladder())                                   # 2nd ACTIVE → reject
     with _pytest.raises(_IntegrityError):
         await db.flush()
+
+
+# ==========================================================================
+# Task B6 — the relocate-decision `detail` enrichment + the additive
+# `DispatchCardOut.relocated_to` are extra="forbid"-safe AND add ZERO
+# routes (the POSITIVE zero-surface proof, Spec §8/§4 "API"/§11). APPEND
+# -only: every test above is preserved verbatim.
+# ==========================================================================
+def test_b6_relocate_detail_and_relocated_to_parse_back():
+    """``DecisionOut.detail`` carrying the relocate decision-card keys and
+    ``DispatchCardOut`` carrying the additive ``relocated_to`` both parse
+    back under ``extra="forbid"`` — and the legacy shapes still parse (the
+    additive contract: default ``relocated_to=None`` keeps existing
+    constructions valid)."""
+    from conduit.guest.schemas.requests import DispatchCardOut
+    from conduit.supervisor.schemas.decisions import DecisionOut
+
+    # The enriched relocate detail dict round-trips (``detail`` is a free
+    # ``dict`` — the enrichment adds keys, no schema-class change).
+    d = DecisionOut(
+        escalation_id=str(_uuid.uuid4()),
+        child_id=str(_uuid.uuid4()),
+        trigger="servicer_raised", state="open", cycle_count=0,
+        non_time_boxed=False,
+        recommendation={
+            "action": "relocate",
+            "rationale_text": "relocating guest",
+            "detail": {
+                "target_room_id": str(_uuid.uuid4()),
+                "current_room": str(_uuid.uuid4()),
+                "recommended_room": str(_uuid.uuid4()),
+                "eligible_rooms": [str(_uuid.uuid4()), str(_uuid.uuid4())],
+            }})
+    assert d.recommendation.detail["current_room"]
+    assert d.recommendation.detail["eligible_rooms"]
+
+    # The additive output: present + parses; absent → default None (legacy
+    # constructions stay valid); a stray key still rejected (forbid intact).
+    c = DispatchCardOut(child_id=str(_uuid.uuid4()), state="routing",
+                        relocated_to="R-NEW")
+    assert c.relocated_to == "R-NEW"
+    legacy = DispatchCardOut(child_id=str(_uuid.uuid4()), state="routing")
+    assert legacy.relocated_to is None
+    with _pytest.raises(Exception):
+        DispatchCardOut(child_id=str(_uuid.uuid4()), state="routing",
+                        __bogus_internal__="x")
+
+
+def test_b6_zero_new_routes_route_contract_unchanged():
+    """POSITIVE zero-surface proof (Spec §4 "API"/§8/§11): the B6 change is
+    additive-only — it adds NO dispatch-spine route. The live route
+    contract (sorted ``(METHOD, path)`` over every dispatch-spine route)
+    must be EXACTLY the established set: the two B6-touched endpoints stay
+    single-method (``GET`` decisions, ``GET`` requests, ``POST`` resolve)
+    and NO new path appears under any spine prefix."""
+    mp = set(_spine_method_paths())
+    # The two endpoints B6 touches are present and UN-multiplied (no new
+    # verb / sibling path was introduced to carry the relocate variant).
+    assert ("GET", "/api/supervisor/decisions") in mp
+    assert ("POST", "/api/supervisor/decisions/{escalation_id}/resolve") in mp
+    assert ("GET", "/api/guest/requests") in mp
+    # Zero NEW relocate-specific routes: no path mentions "relocate"/"room".
+    for _m, path in mp:
+        low = path.lower()
+        assert "relocate" not in low and "/rooms" not in low, (
+            f"a relocate/room dispatch-spine route appeared: {path} "
+            "(B6 must be ZERO new routes — service/schema only)")
+    # The decisions surface is exactly the inherited 2-route shape
+    # (list + resolve) — no third decisions route was added.
+    dec = sorted(p for _m, p in mp if p.startswith("/api/supervisor/decisions"))
+    assert dec == ["/api/supervisor/decisions",
+                   "/api/supervisor/decisions/{escalation_id}/resolve"], dec

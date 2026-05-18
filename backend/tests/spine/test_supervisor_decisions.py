@@ -534,3 +534,182 @@ async def test_supervisor_children_explorer_and_override(
     assert (await client.delete(
         f"/api/supervisor/children/{h_to['child'].id}/takeover"
     )).status_code == 405
+
+
+# ==========================================================================
+# Task B6 — the relocate decision card (`detail` enrichment) + the `edit`
+# `{new_room_id}` variant (Spec §8 / §7.3 / §7.4). APPEND-only: every test
+# above is preserved verbatim. The relocate escalation is produced by the
+# REAL ``spine.open_escalation`` (SERVICER_RAISED) so the recommendation +
+# its persisted ``RecRelocate.target_room_id`` + the supervisor_sla Timer
+# are all spine-built (the deterministic available-room pick the pure
+# ``room_selection`` computed at recommendation-build — never re-run here).
+# ==========================================================================
+async def _open_relocate_escalation(db, make_account, p, sec, room, ic,
+                                     *, rooms):
+    """An open *servicer_raised* relocate Escalation built by the REAL
+    ``spine.open_escalation`` over a guest whose stay sits in ``room`` while
+    ``rooms`` (extra empty rooms in the same property) provide the eligible
+    available targets. The deterministic pick is persisted on
+    ``RecRelocate.target_room_id`` at build. Returns handles incl. the
+    guest's stay so the test can assert the re-bind."""
+    from conduit.shared.models import ChildSubRequest
+
+    owner = await make_account("servicer", f"ow-{uuid.uuid4().hex[:8]}", _PW)
+    guest = await make_account("guest", f"g-{uuid.uuid4().hex[:8]}", _PW)
+    now = dt.datetime.now(dt.timezone.utc)
+    stay = Stay(guest_account_id=guest.id, room_id=room.id, check_in=now,
+                check_out=now + dt.timedelta(days=1), status="active")
+    db.add(stay)
+    await db.flush()
+    req = Request(guest_account_id=guest.id, stay_id=stay.id, raw_text="x")
+    db.add(req)
+    await db.flush()
+    child = ChildSubRequest(request_id=req.id, text="x", outcome="auto",
+                            fulfilment_mode="dispatch", issue_code_id=ic.id,
+                            state="in_progress", priority_tier="P3")
+    db.add(child)
+    await db.flush()
+    wo = WorkOrder(child_id=child.id, kind="dispatch",
+                   routing_model="skill_matched", priority_tier="P3",
+                   assigned_servicer_id=owner.id,
+                   accountable_owner_id=owner.id,
+                   section_id=sec.id, state="created")
+    db.add(wo)
+    await db.flush()
+    esc = await spine.open_escalation(
+        db, child, spine.EscalationTrigger.SERVICER_RAISED,
+        actor_account_id=owner.id, reason="can't fix")
+    await db.flush()
+    return {"child": child, "wo": wo, "esc": esc, "owner": owner,
+            "guest": guest, "stay": stay}
+
+
+async def test_supervisor_relocate_decision_card_and_edit(
+    client, make_account, login, db
+):
+    p, sec, room, ic, duty = await _seed_world(db, make_account)
+    sup = await make_account("supervisor", f"sup-{uuid.uuid4().hex[:8]}", _PW)
+
+    # Three spare rooms in the property: the deterministic pick is the FIRST
+    # eligible (room_selection orders by label then id). Use disjoint labels
+    # so the ordering is unambiguous.
+    spare_a = Room(section_id=sec.id, label="RA")
+    spare_b = Room(section_id=sec.id, label="RB")
+    spare_c = Room(section_id=sec.id, label="RC")
+    db.add_all([spare_a, spare_b, spare_c])
+    await db.flush()
+
+    # An OCCUPIED room (an active stay binds it) — the edit-409 case.
+    occ_room = Room(section_id=sec.id, label="ROCC")
+    db.add(occ_room)
+    await db.flush()
+    occ_guest = await make_account("guest", f"og-{uuid.uuid4().hex[:8]}", _PW)
+    now = dt.datetime.now(dt.timezone.utc)
+    db.add(Stay(guest_account_id=occ_guest.id, room_id=occ_room.id,
+                check_in=now, check_out=now + dt.timedelta(days=1),
+                status="active"))
+    await db.flush()
+
+    h = await _open_relocate_escalation(
+        db, make_account, p, sec, room, ic,
+        rooms=[spare_a, spare_b, spare_c])
+    h_edit = await _open_relocate_escalation(
+        db, make_account, p, sec, room, ic,
+        rooms=[spare_a, spare_b, spare_c])
+    await db.commit()
+
+    # The spine persisted the deterministic relocate target.
+    from conduit.shared.models import RecRelocate
+    rr = (await db.execute(sa.select(RecRelocate).where(
+        RecRelocate.recommendation_escalation_id == h["esc"].id)
+    )).scalar_one()
+    persisted_target = rr.target_room_id
+
+    # ---- GET /api/supervisor/decisions → the relocate detail card --------
+    await login(sup.username, _PW)
+    lst = await client.get("/api/supervisor/decisions")
+    assert lst.status_code == 200, lst.text
+    by_id = {d["escalation_id"]: d for d in lst.json()}
+    card = by_id[str(h["esc"].id)]
+    assert card["recommendation"]["action"] == "relocate"
+    detail = card["recommendation"]["detail"]
+    # The supervisor decision-card data (Spec §8): current / recommended /
+    # eligible rooms. ``recommended_room`` == the persisted
+    # ``RecRelocate.target_room_id`` projection (display-only; selection is
+    # NOT re-run to mutate the recommendation — auto-proceed safety).
+    assert detail["current_room"] == str(room.id)
+    assert detail["recommended_room"] == str(persisted_target)
+    assert isinstance(detail["eligible_rooms"], list)
+    elig = set(detail["eligible_rooms"])
+    assert {str(spare_a.id), str(spare_b.id), str(spare_c.id)} <= elig
+    # Occupied + current are NOT eligible.
+    assert str(occ_room.id) not in elig
+    assert str(room.id) not in elig
+    # The thin stored projection is still carried (B-line preservation).
+    assert detail["target_room_id"] == str(persisted_target)
+    # A non-relocate item is unchanged (no new keys).
+    h_stall = await _open_stall_escalation(db, make_account, p, sec, room, ic)
+    await db.commit()
+    lst2 = await client.get("/api/supervisor/decisions")
+    s_card = {d["escalation_id"]: d for d in lst2.json()}[
+        str(h_stall["esc"].id)]
+    assert s_card["recommendation"]["action"] == "reassign"
+    assert "current_room" not in s_card["recommendation"]["detail"]
+
+    # ---- edit with an UNKNOWN room id → 422 ------------------------------
+    r422 = await client.post(
+        f"/api/supervisor/decisions/{h_edit['esc'].id}/resolve",
+        json={"action": "edit", "payload": {"new_room_id": str(uuid.uuid4())}})
+    assert r422.status_code == 422, r422.text
+
+    # ---- edit to an OCCUPIED room → 409 ----------------------------------
+    r409 = await client.post(
+        f"/api/supervisor/decisions/{h_edit['esc'].id}/resolve",
+        json={"action": "edit", "payload": {"new_room_id": str(occ_room.id)}})
+    assert r409.status_code == 409, r409.text
+
+    # ---- edit to the CURRENT room → 409 ----------------------------------
+    r409b = await client.post(
+        f"/api/supervisor/decisions/{h_edit['esc'].id}/resolve",
+        json={"action": "edit", "payload": {"new_room_id": str(room.id)}})
+    assert r409b.status_code == 409, r409b.text
+
+    # ---- edit to an eligible room (NOT the recommended one) → 200 --------
+    # Pick a spare that is NOT the deterministic recommended target so the
+    # supervisor-edited room is provably what re-binds (not the stored rec).
+    chosen = (spare_b if str(spare_b.id) != str(persisted_target)
+              else spare_c)
+    redit = await client.post(
+        f"/api/supervisor/decisions/{h_edit['esc'].id}/resolve",
+        json={"action": "edit", "payload": {"new_room_id": str(chosen.id)}})
+    assert redit.status_code == 200, redit.text
+    await db.commit()
+    e_edit = (await db.execute(sa.select(Escalation).where(
+        Escalation.id == h_edit["esc"].id))).scalar_one()
+    assert e_edit.state == "edited"
+    assert str(e_edit.resolved_by_account_id) == str(sup.id)
+    # The REAL relocate_stay re-bound the guest's stay to the CHOSEN room
+    # (the single executor — NOT reimplemented here).
+    stay_row = (await db.execute(sa.select(Stay).where(
+        Stay.id == h_edit["stay"].id))).scalar_one()
+    assert str(stay_row.room_id) == str(chosen.id)
+
+    # ---- approve a relocate → re-binds to the persisted target ----------
+    rok = await client.post(
+        f"/api/supervisor/decisions/{h['esc'].id}/resolve",
+        json={"action": "approve"})
+    assert rok.status_code == 200, rok.text
+    await db.commit()
+    e_ok = (await db.execute(sa.select(Escalation).where(
+        Escalation.id == h["esc"].id))).scalar_one()
+    assert e_ok.state == "approved"
+    stay_ok = (await db.execute(sa.select(Stay).where(
+        Stay.id == h["stay"].id))).scalar_one()
+    assert str(stay_ok.room_id) == str(persisted_target)
+
+    # ---- an already-resolved relocate escalation → 409 (preserved) ------
+    r409c = await client.post(
+        f"/api/supervisor/decisions/{h['esc'].id}/resolve",
+        json={"action": "approve"})
+    assert r409c.status_code == 409, r409c.text
