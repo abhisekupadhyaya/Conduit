@@ -16,6 +16,7 @@ from conduit.shared.models import (
     EventGlitchOpened, EventGlitchClosed, EventCrossDeptNotified,
     EventTimerFired, EventSlaPresetCreated, EventSlaPresetUpdated,
     EventEscalationLadderCreated, EventEscalationLadderUpdated,
+    EventReservationMutated,
 )
 
 _CHILD_DETAIL = {
@@ -183,3 +184,18 @@ async def emit_escalation_ladder_updated(s, escalation_ladder_id,
     await _emit_one(s, "escalation_ladder_updated",
                     EventEscalationLadderUpdated, "escalation_ladder_id",
                     escalation_ladder_id, actor_account_id)
+
+
+# D24: bespoke shape — the detail row carries payload beyond a single FK
+# (field/old_value/new_value), so it does NOT fit the ``_emit_one`` 1-FK
+# helper. Mirrors ``emit_request_created`` exactly: construct the Event with
+# the same kwargs, ``s.add`` then ``await s.flush()`` for its id, then add the
+# thin detail row. The spine ``_execute_action`` is the only caller.
+async def emit_reservation_mutated(s, stay_id, field, old_value, new_value,
+                                   actor_account_id=None) -> None:
+    e = Event(type="reservation_mutated", actor_account_id=actor_account_id)
+    s.add(e)
+    await s.flush()
+    s.add(EventReservationMutated(event_id=e.id, stay_id=stay_id,
+                                  field=field, old_value=old_value,
+                                  new_value=new_value))

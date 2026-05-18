@@ -28,11 +28,13 @@ from conduit.core.exceptions import ConflictError
 from conduit.shared.domain import lifecycle, recommendation, routing
 from conduit.shared.events import writer
 from conduit.shared.models import (ChildSubRequest, Escalation, IssueCode,
-                                   RecApprove, RecBroadcast, RecDeny,
-                                   RecExtendSla, RecReassign, RecRelocate,
-                                   Recommendation, Request, Room, Roster,
-                                   RosterAssignment, Section, SLAPreset,
-                                   StaffProfile, Stay, WorkOrder)
+                                   NoDispatchResolution,
+                                   RecApplyReservationMutation, RecApprove,
+                                   RecBroadcast, RecDeny, RecExtendSla,
+                                   RecReassign, RecRelocate, Recommendation,
+                                   Request, Room, Roster, RosterAssignment,
+                                   Section, SLAPreset, StaffProfile, Stay,
+                                   WorkOrder)
 from conduit.shared.models import EscalationLadder as _EscalationLadder
 
 # Named fallback (D9) — used ONLY when the active SLAPreset chain is genuinely
@@ -77,6 +79,9 @@ _REC_DETAIL = {
         extend_seconds=p["extend_seconds"]),
     "approve": lambda eid, p: RecApprove(recommendation_escalation_id=eid),
     "deny": lambda eid, p: RecDeny(recommendation_escalation_id=eid),
+    "apply_reservation_mutation": lambda eid, p: RecApplyReservationMutation(
+        recommendation_escalation_id=eid,
+        field=p["field"], requested_value=p["requested_value"]),
 }
 
 
@@ -199,8 +204,10 @@ async def _assemble_context(s: AsyncSession, child: ChildSubRequest,
         return {"available_room_id": ctx.get("available_room_id"),
                 "extend_seconds": extend}
 
-    # triage_flag — the flag verdict (D5/D24).
-    return {"verdict": ctx.get("verdict")}
+    # triage_flag — the flag verdict (D5/D24) + the D24 extracted target
+    # (persisted at intake on the child; the LLM is never re-invoked here).
+    return {"verdict": ctx.get("verdict"),
+            "requested_checkout": getattr(child, "requested_checkout", None)}
 
 
 async def open_escalation(s: AsyncSession, child: ChildSubRequest,
@@ -362,12 +369,49 @@ async def _resolved_action(s: AsyncSession, esc: Escalation, outcome: str,
                 RecExtendSla.recommendation_escalation_id == esc.id)
             )).scalar_one()
             return act, {"extend_seconds": d.extend_seconds}
+        if act == "apply_reservation_mutation":
+            d = (await s.execute(sa.select(RecApplyReservationMutation).where(
+                RecApplyReservationMutation.recommendation_escalation_id
+                == esc.id))).scalar_one()
+            return act, {"field": d.field,
+                         "requested_value": d.requested_value}
         return act, {}  # approve / deny — no params
     # edited / overridden — the supervisor supplies the typed action.
     if action is None:
         raise ConflictError(
             f"outcome {outcome!r} requires a supervisor-supplied action")
-    return action, dict(payload or {})
+    params = dict(payload or {})
+    if action == "apply_reservation_mutation":
+        # JSON has no native datetime — the supervisor-supplied edit payload
+        # carries ``requested_value`` as an ISO-8601 string (the frontend
+        # ``datetime-local`` sends an offset-less ``YYYY-MM-DDTHH:MM``).
+        # Coerce to a tz-aware datetime here, the spine boundary where the
+        # other resolved action params are typed (the stored-rec branch
+        # already returns a real ORM ``DateTime`` value). Mirror Task 8's
+        # conservative ``dt.datetime.fromisoformat`` idiom
+        # (``conduit/shared/domain/triage.py``); naive → UTC (the rest of
+        # this slice is tz-aware UTC). Invalid input is rejected with the
+        # SAME ``ConflictError`` the adjacent missing-action guard uses for
+        # bad supervisor-supplied resolve input (a mapped 4xx — never a 500
+        # / asyncpg DataError, never a silent None onto ``stay.check_out``).
+        rv = params.get("requested_value")
+        if isinstance(rv, dt.datetime):
+            pass  # defensive — already typed
+        elif isinstance(rv, str):
+            try:
+                parsed = dt.datetime.fromisoformat(rv)
+            except (ValueError, TypeError):
+                raise ConflictError(
+                    "apply_reservation_mutation edit requires a valid ISO "
+                    f"datetime requested_value (got {rv!r})")
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=dt.timezone.utc)
+            params["requested_value"] = parsed
+        else:
+            raise ConflictError(
+                "apply_reservation_mutation edit requires a valid ISO "
+                f"datetime requested_value (got {rv!r})")
+    return action, params
 
 
 async def _execute_action(s: AsyncSession, esc: Escalation,
@@ -414,6 +458,41 @@ async def _execute_action(s: AsyncSession, esc: Escalation,
         from conduit.shared.engine.timers import TimerType, arm
         await arm(s, "escalation_id", esc.id, TimerType.SUPERVISOR_SLA,
                   fire_at=now + dt.timedelta(seconds=int(secs)))
+        return
+
+    if act == "apply_reservation_mutation":
+        # D24 (triage_flag): resolve the Stay via the established
+        # child→Request→Stay chain (engine-local read; Request/Stay already
+        # imported — mirrors ``_property_id_for_child``'s select_from/join
+        # idiom). Capture the old value BEFORE the write for the append-only
+        # event, then mutate the booking field in place.
+        stay = (await s.execute(
+            sa.select(Stay)
+            .select_from(Request)
+            .join(Stay, Stay.id == Request.stay_id)
+            .where(Request.id == child.request_id)
+        )).scalar_one()
+        old = stay.check_out
+        new = params["requested_value"]
+        stay.check_out = new
+        s.add(stay)
+        await writer.emit_reservation_mutated(
+            s, stay.id, params["field"], old, new, actor_id)
+        # Closure-lite reuse (D8 — no new child states / endpoints): record
+        # the outcome as a NoDispatchResolution and advance triaged→answered.
+        # The child→answered legacy writer path requires the resolution row
+        # FK (``EventChildAnswered.resolution_child_id`` NOT NULL → the
+        # NoDispatchResolution PK is ``child_id``), so add+flush it FIRST and
+        # pass ``resolution_child_id=child.id`` — the exact idiom the merged
+        # ``guest.services.nodispatch.resolve`` uses. The guest's existing
+        # confirm endpoint then closes it (answered→closed).
+        s.add(NoDispatchResolution(
+            child_id=child.id, mode="reservation_mutation",
+            answer_text=f"Your checkout is now {new:%Y-%m-%d %H:%M}."))
+        await s.flush()
+        await lifecycle.transition(s, child, "answered",
+                                   actor_account_id=actor_id,
+                                   resolution_child_id=child.id)
         return
 
     # relocate is effected by the C4 escalation→relocate hop (real

@@ -51,6 +51,8 @@ class ChildSubRequest(Base):
         DateTime(timezone=True), nullable=True)
     predecessor_child_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("child_sub_request.id"), nullable=True)
+    requested_checkout: Mapped[dt.datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[dt.datetime] = mapped_column(

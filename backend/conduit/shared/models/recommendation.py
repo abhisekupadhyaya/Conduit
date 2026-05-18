@@ -18,7 +18,7 @@ class Recommendation(Base):
     __table_args__ = (
         CheckConstraint(
             "action in ('reassign','broadcast','relocate',"
-            "'extend_sla','approve','deny')",
+            "'extend_sla','approve','deny','apply_reservation_mutation')",
             name="ck_rec_action",
         ),
     )
@@ -69,3 +69,14 @@ class RecDeny(_RecDetail):
 
 class RecBroadcast(_RecDetail):
     __tablename__ = "rec_broadcast"
+
+
+class RecApplyReservationMutation(_RecDetail):
+    __tablename__ = "rec_apply_reservation_mutation"
+    __table_args__ = (
+        CheckConstraint("field = 'check_out'",
+                        name="ck_rec_apply_mutation_field"),
+    )
+    field: Mapped[str] = mapped_column(String, nullable=False)
+    requested_value: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)

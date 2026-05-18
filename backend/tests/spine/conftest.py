@@ -24,7 +24,7 @@ from collections.abc import AsyncGenerator
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import event
+from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import (AsyncSession, async_sessionmaker,
                                     create_async_engine)
 
@@ -39,8 +39,45 @@ def _test_url() -> str:
     return f"{base}/{s.test_database_name}"
 
 
+_NONSPINE_LEAKAGE_RESET = False
+
+
 @pytest_asyncio.fixture()
-async def db() -> AsyncGenerator[AsyncSession, None]:
+async def _isolate_from_nonspine_leakage() -> None:
+    """One-shot DB reset at spine-package entry.
+
+    The spine bench is savepoint-isolated so nothing a spine test writes
+    leaks OUT (``test_leak_sentinel``). But rows *committed* by earlier
+    non-spine packages — which use the real-commit root ``db`` whose
+    teardown only ``delete(Account)`` and relies on an ORM cascade that
+    never reaches e.g. ``Timer`` (FKs child/work_order/escalation, never
+    Account) — stay in the shared test DB and are visible to the spine
+    connection, poisoning global reads like ``runner.tick`` (a stray
+    past-due Timer → ``timer … failed to fire`` → the stall escalation
+    rolls back). This fixture TRUNCATEs all data ONCE, the first time a
+    spine ``db`` is built (after every non-spine package has run, before
+    the first savepoint-isolated session), preserving the schema (the
+    alembic head row is kept). It is a one-shot — never between spine
+    tests, which are already isolated and intentionally share nothing."""
+    global _NONSPINE_LEAKAGE_RESET
+    if not _NONSPINE_LEAKAGE_RESET:
+        engine = create_async_engine(_test_url())
+        try:
+            async with engine.begin() as c:
+                await c.execute(text(
+                    "DO $$ DECLARE r RECORD; BEGIN "
+                    "FOR r IN SELECT tablename FROM pg_tables "
+                    "WHERE schemaname = 'public' "
+                    "AND tablename <> 'alembic_version' LOOP "
+                    "EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) "
+                    "|| ' RESTART IDENTITY CASCADE'; END LOOP; END $$;"))
+        finally:
+            await engine.dispose()
+        _NONSPINE_LEAKAGE_RESET = True
+
+
+@pytest_asyncio.fixture()
+async def db(_isolate_from_nonspine_leakage) -> AsyncGenerator[AsyncSession, None]:
     """Savepoint-rollback isolated session (overrides the merged root ``db``
     for this package only).
 
@@ -90,10 +127,10 @@ def fake_llm(monkeypatch):
     fakes in test_triage.py / test_intake_service.py."""
     state = {"classify": None, "ground": None}
 
-    async def c(t, cat):
+    async def c(t, cat, history: str = ""):
         return await state["classify"](t, cat)
 
-    async def g(q, ctx):
+    async def g(q, ctx, history: str = ""):
         return await state["ground"](q, ctx)
 
     monkeypatch.setattr(llm, "classify", c)

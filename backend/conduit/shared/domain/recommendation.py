@@ -25,6 +25,7 @@ _TRIGGERS = ("triage_flag", "stall", "servicer_raised")
 # Mirrors Recommendation.ck_rec_action exactly.
 _ACTIONS = (
     "reassign", "broadcast", "relocate", "extend_sla", "approve", "deny",
+    "apply_reservation_mutation",
 )
 
 
@@ -100,14 +101,30 @@ def build(
         # note: §7.4 names approve|deny but not the exact verdict token; we
         # take the minimal spec-faithful rule — verdict == "approve" →
         # approve, anything else → deny (conservative default).
-        verdict = context.get("verdict")
-        if verdict == "approve":
-            action = "approve"
-            template = "Triage flag reviewed; approving the flagged request."
+        rc = context.get("requested_checkout")
+        if rc is not None:
+            # D24 answer↔action: a reservation-mutation flag carries the
+            # already-extracted target (persisted at intake — the LLM is
+            # NEVER in the auto-proceed path; D5/D30).
+            action = "apply_reservation_mutation"
+            params = {"field": "check_out", "requested_value": rc}
+            template = (
+                f"Guest requested a checkout change to {rc}; applying the "
+                f"reservation mutation on approval."
+            )
         else:
-            action = "deny"
-            template = "Triage flag reviewed; denying the flagged request."
-        params = {}
+            verdict = context.get("verdict")
+            if verdict == "approve":
+                action = "approve"
+                template = (
+                    "Triage flag reviewed; approving the flagged request."
+                )
+            else:
+                action = "deny"
+                template = (
+                    "Triage flag reviewed; denying the flagged request."
+                )
+            params = {}
 
     return RecommendationDraft(
         action=action,

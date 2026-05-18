@@ -67,6 +67,7 @@ from conduit.shared.models.event import (
     EventSlaPresetUpdated,
     EventEscalationLadderCreated,
     EventEscalationLadderUpdated,
+    EventReservationMutated,
 )
 from conduit.shared.models.staff_profile import StaffProfile
 from conduit.shared.models.staff_skill import StaffSkill
@@ -85,6 +86,7 @@ from conduit.shared.models.recommendation import (
     RecApprove,
     RecDeny,
     RecBroadcast,
+    RecApplyReservationMutation,
 )
 from conduit.shared.models.glitch import Glitch
 from conduit.shared.models.cross_dept_notification import CrossDeptNotification
@@ -112,10 +114,11 @@ __all__ = ["Base", "Account", "Property", "Section", "Room", "Stay",
            "EventGlitchClosed", "EventCrossDeptNotified",
            "EventTimerFired", "EventSlaPresetCreated",
            "EventSlaPresetUpdated", "EventEscalationLadderCreated",
-           "EventEscalationLadderUpdated",
+           "EventEscalationLadderUpdated", "EventReservationMutated",
            "StaffProfile", "StaffSkill", "Roster", "RosterAssignment",
            "SLAPreset", "EscalationLadder",
            "WorkOrder", "Timer", "Escalation",
            "Recommendation", "RecReassign", "RecRelocate", "RecExtendSla",
            "RecApprove", "RecDeny", "RecBroadcast",
+           "RecApplyReservationMutation",
            "Glitch", "CrossDeptNotification", "FailedTransition"]

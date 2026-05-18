@@ -195,7 +195,8 @@ async def test_supervisor_decisions_spine(client, make_account, login, db):
     # No internal leak — curated keys only.
     assert set(card.keys()) == {
         "escalation_id", "child_id", "trigger", "state", "cycle_count",
-        "supervisor_sla_deadline", "non_time_boxed", "recommendation"}
+        "supervisor_sla_deadline", "non_time_boxed", "recommendation",
+        "issue_label"}
 
     # ---- ?status filter is honoured (hard_escalated visible there) -------
     lst_h = await client.get("/api/supervisor/decisions?status=hard_escalated")
@@ -432,7 +433,8 @@ async def test_supervisor_children_explorer_and_override(
     assert card["glitch"]["state"] == "open"
     # Curated keys only — no internal leak.
     assert set(card.keys()) == {
-        "child_id", "state", "work_order", "escalation", "glitch"}
+        "child_id", "state", "work_order", "escalation", "glitch",
+        "issue_label"}
 
     # ---- filter param (?child_id=) narrows the global read --------------
     one = await client.get(

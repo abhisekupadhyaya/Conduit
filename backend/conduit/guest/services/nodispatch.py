@@ -18,7 +18,8 @@ from conduit.shared.integrations.openai import LLMUnavailable
 from conduit.supervisor.dal import kb as kbdal
 
 
-async def resolve(s: AsyncSession, child, ambient: dict, actor_id) -> dict:
+async def resolve(s: AsyncSession, child, ambient: dict, actor_id,
+                  history: str = "") -> dict:
     kb = [{"id": str(e.id), "topic": e.topic, "content": e.content}
           for e in await kbdal.list_entries(s, status="active")]
     facts = {"room_label": ambient["room_label"],
@@ -27,7 +28,8 @@ async def resolve(s: AsyncSession, child, ambient: dict, actor_id) -> dict:
              "check_out": str(ambient["check_out"]),
              "stay_status": ambient["stay_status"]}
     try:
-        g = await grounding.ground(child.text, kb=kb, facts=facts)
+        g = await grounding.ground(child.text, kb=kb, facts=facts,
+                                   history=history)
     except LLMUnavailable:                             # AD11 degrade only
         g = {"grounded": False, "leaves_no_dispatch": False, "answer": "",
              "used_kb_ids": [], "used_fields": []}

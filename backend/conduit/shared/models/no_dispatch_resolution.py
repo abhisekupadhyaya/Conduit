@@ -14,8 +14,9 @@ from conduit.shared.db import Base
 class NoDispatchResolution(Base):
     __tablename__ = "no_dispatch_resolution"
     __table_args__ = (
-        CheckConstraint("mode in ('grounded_answer','human_deferral')",
-                        name="ck_ndr_mode"),
+        CheckConstraint(
+            "mode in ('grounded_answer','human_deferral',"
+            "'reservation_mutation')", name="ck_ndr_mode"),
         CheckConstraint("helpful is null or helpful in ('yes','no')",
                         name="ck_ndr_helpful"),
     )
