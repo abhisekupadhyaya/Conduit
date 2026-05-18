@@ -241,3 +241,18 @@ def _leak_sentinel():
     actual assertion lives in
     test_structural_guards.py::test_leak_sentinel (a fresh-session check)."""
     yield
+
+
+@pytest.fixture()
+def fake_decompose(monkeypatch):
+    """Deterministic decompose double. Default: identity (1 message → 1 text)
+    so every single-need fixture stays byte-identical. Tests that want a
+    multi-need split set state["texts"] to a list."""
+    from conduit.shared.domain import triage as _t
+    state = {"texts": None}
+
+    def _d(raw_text: str):
+        return state["texts"] if state["texts"] is not None else [raw_text]
+
+    monkeypatch.setattr(_t, "decompose", _d)
+    return state
