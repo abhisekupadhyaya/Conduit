@@ -153,7 +153,8 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
     catalog = [dict(code=c.code, label=c.label,
                     fulfilment_mode=c.fulfilment_mode,
                     is_reservation_mutation=c.is_reservation_mutation)
-               for c in await icdal.list_codes(s, status="active")]
+               for c in await icdal.list_codes(s, status="active",
+                                                origin="guest")]
     # --- Conversation window (extraction-only, Spec §7.1) ----------------
     # Reuse the EXACT read model the conversation view uses: prior requests
     # for this guest on the ACTIVE stay (request.stay_id == stay.id),

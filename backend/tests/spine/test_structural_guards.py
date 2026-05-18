@@ -146,6 +146,33 @@ async def test_seeded_fo_guest_move_origin_system(db):
     assert by_code["FO-GUEST-MOVE"].origin == "system"
 
 
+async def test_guest_catalog_excludes_system_origin_code(db):
+    """Signature guard (spec §4/§6/§11): a ``origin='system'`` code
+    (``FO-GUEST-MOVE``) NEVER enters the guest classify catalog. The guest
+    path is ``list_codes(status='active', origin='guest')`` — it must EXCLUDE
+    ``FO-GUEST-MOVE``; the UNFILTERED supervisor path ``list_codes()`` must
+    still INCLUDE it (``origin == 'system'``), so supervisor CRUD sees both."""
+    from conduit.seed import ensure_issue_codes
+    from conduit.supervisor.dal import issue_codes as icdal
+
+    await ensure_issue_codes(db)
+    await db.flush()
+
+    # GUEST path (the new filtered call intake uses) — system code ABSENT.
+    guest_catalog = await icdal.list_codes(db, status="active",
+                                           origin="guest")
+    guest_codes = {c.code for c in guest_catalog}
+    assert "FO-GUEST-MOVE" not in guest_codes, (
+        "system-origin FO-GUEST-MOVE leaked into the guest classify catalog")
+
+    # UNFILTERED supervisor path — system code PRESENT with origin 'system'.
+    sup_catalog = await icdal.list_codes(db)
+    sup_by_code = {c.code: c for c in sup_catalog}
+    assert "FO-GUEST-MOVE" in sup_by_code, (
+        "FO-GUEST-MOVE missing from unfiltered supervisor catalog")
+    assert sup_by_code["FO-GUEST-MOVE"].origin == "system"
+
+
 async def test_one_event_per_transition(db, seeded_guest_with_stay, fake_llm):
     from conduit.seed import ensure_issue_codes
     from conduit.shared.models import (Event, EventChildAnswered,
