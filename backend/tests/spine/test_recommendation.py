@@ -67,6 +67,28 @@ def test_servicer_raised_no_room_yields_extend_sla():
     assert draft.rationale_text
 
 
+def test_servicer_raised_relocate_params_from_context_not_llm():
+    # §7.2: the relocate target is the SELECTION result carried in
+    # ``context['available_room_id']`` (pure-Python, deterministic) — the LLM
+    # seam is boxed and may ONLY render the rationale string, never the
+    # action/params. A garbage-returning seam must not move the picked room.
+    picked = uuid.uuid4()
+    sentinel = "FAKE-LLM-RATIONALE"
+
+    def fake_llm(_template: str) -> str:
+        return sentinel
+
+    draft = build(
+        trigger="servicer_raised",
+        child={"id": uuid.uuid4()},
+        context={"available_room_id": picked, "extend_seconds": 3600},
+        llm=fake_llm,
+    )
+    assert draft.action == "relocate"               # deterministic
+    assert draft.params == {"target_room_id": picked}  # from context
+    assert draft.rationale_text == sentinel          # LLM only the rationale
+
+
 # ----------------------------------------------------------- triage_flag ----
 def test_triage_flag_verdict_approve():
     draft = build(

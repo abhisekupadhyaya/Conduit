@@ -25,7 +25,8 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from conduit.core.exceptions import ConflictError
-from conduit.shared.domain import lifecycle, recommendation, routing
+from conduit.shared.domain import (lifecycle, recommendation, room_selection,
+                                    routing)
 from conduit.shared.events import writer
 from conduit.shared.models import (ChildSubRequest, Escalation, IssueCode,
                                    NoDispatchResolution,
@@ -173,6 +174,41 @@ async def _stall_candidates(s: AsyncSession, property_id):
     return candidates
 
 
+async def _rooms_and_occupancy(s: AsyncSession, property_id):
+    """Engine-local read of the property's rooms + active-Stay occupancy.
+
+    Returns ``(rooms, occupied_room_ids)`` where ``rooms`` is a deterministic
+    caller-ordered list of ``(room_id, room_label)`` (ordered by the real
+    Section→Room FK chain, label then id — stable, no shuffle per §7.1) and
+    ``occupied_room_ids`` is the set of room_ids with an ACTIVE ``Stay``.
+    Selection RULES are NOT re-implemented here — these feed the pure C
+    ``room_selection.select`` (the established engine-local-read idiom that
+    mirrors ``_stall_candidates`` feeding C1 ``routing.select``)."""
+    rooms = [
+        (r.id, r.label) for r in (await s.execute(
+            sa.select(Room)
+            .join(Section, Section.id == Room.section_id)
+            .where(Section.property_id == property_id)
+            .order_by(Room.label, Room.id)
+        )).scalars().all()
+    ]
+    occupied = set((await s.execute(
+        sa.select(Stay.room_id).where(Stay.status == "active")
+    )).scalars().all())
+    return rooms, occupied
+
+
+async def _current_room_for_child(s: AsyncSession, child: ChildSubRequest):
+    """The guest's CURRENT room_id via the real child→Request→Stay chain
+    (engine-local read; mirrors ``_property_id_for_child``'s join idiom)."""
+    return (await s.execute(
+        sa.select(Stay.room_id)
+        .select_from(Request)
+        .join(Stay, Stay.id == Request.stay_id)
+        .where(Request.id == child.request_id)
+    )).scalar_one_or_none()
+
+
 async def _assemble_context(s: AsyncSession, child: ChildSubRequest,
                             trigger: EscalationTrigger, property_id,
                             ctx: dict) -> dict:
@@ -196,12 +232,25 @@ async def _assemble_context(s: AsyncSession, child: ChildSubRequest,
                 "broadcast_pool": sel.broadcast_pool}
 
     if trigger is EscalationTrigger.SERVICER_RAISED:
-        # §7.4: relocate to a deterministic available room if one is found,
-        # else extend the SLA by the child's fulfilment window.
+        # §7.2/§7.4: relocate to a DETERMINISTIC available room if one is
+        # found, else extend the SLA by the child's fulfilment window.
+        # ENGINE-LOCAL read off the caller's session (the established spine
+        # idiom — mirrors the STALL branch's _stall_candidates → C1
+        # routing.select): read the property's rooms + active-Stay occupancy
+        # + the guest's current room, then call the PURE C room_selection
+        # (rules NOT re-implemented here). ``recommended`` may be ``None`` ⇒
+        # build() falls back to extend_sla (regression preserved). Persisted
+        # on RecRelocate.target_room_id at build → silence/auto-proceed
+        # re-applies the PERSISTED room; selection never re-runs (D9/D30).
+        rooms, occupied = await _rooms_and_occupancy(s, property_id)
+        current_room_id = await _current_room_for_child(s, child)
+        recommended, _eligible = room_selection.select(
+            rooms=rooms, occupied_room_ids=occupied,
+            current_room_id=current_room_id)
         sla = await _sla_for_child(s, child)
         extend = (sla.fulfilment_sla_seconds if sla is not None
                   else DEFAULT_SUPERVISOR_SLA_SECONDS)
-        return {"available_room_id": ctx.get("available_room_id"),
+        return {"available_room_id": recommended,
                 "extend_seconds": extend}
 
     # triage_flag — the flag verdict (D5/D24) + the D24 extracted target
@@ -550,12 +599,36 @@ async def apply_recommendation(s: AsyncSession, escalation: Escalation, *,
 
     resolver = None if outcome == _AUTO_PROCEEDED else actor_id
 
+    # --- Auto-proceed safety (§7.2 / §4 "Auto-proceed safety"; D9/D30) ------
+    # The C4 escalation→relocate hop (lifecycle._escalation_hops) runs the
+    # REAL relocate_stay when ``stay_id`` + ``new_room_id`` are in ctx.
+    # Resolve them HERE, ADDITIVELY, from the ALREADY-PERSISTED room
+    # (``params['target_room_id']`` — the stored RecRelocate.target_room_id
+    # for approved/auto_proceeded, or the supervisor-edited/overridden value
+    # the existing _resolved_action path returns) + the existing
+    # child→Request→Stay chain, so the SILENT auto-proceed path (no caller
+    # ctx) re-applies the PERSISTED room and reaches an end-state IDENTICAL
+    # to approve — selection NEVER re-runs. A caller that already supplied
+    # ctx (the inherited explicit-ctx tests / resolve API) is preserved
+    # VERBATIM: we only fill what is ABSENT, never override.
+    hop_ctx = dict(ctx)
+    if act == "relocate":
+        if hop_ctx.get("new_room_id") is None:
+            hop_ctx["new_room_id"] = params.get("target_room_id")
+        if hop_ctx.get("stay_id") is None:
+            hop_ctx["stay_id"] = (await s.execute(
+                sa.select(Stay.id)
+                .select_from(Request)
+                .join(Stay, Stay.id == Request.stay_id)
+                .where(Request.id == child.request_id)
+            )).scalar_one_or_none()
+
     # The ONE escalation_resolved event + (for relocate) the C4
     # escalation→relocate hop, through the single writer path. Pass the
     # resolved action + relocate ctx so C4's hop runs the real relocate_stay.
     await lifecycle.transition(
         s, escalation, outcome, actor_account_id=resolver,
-        action=act, **ctx)
+        action=act, **hop_ctx)
 
     escalation.resolved_by_account_id = resolver
     escalation.resolved_at = (
