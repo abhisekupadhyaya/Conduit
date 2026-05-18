@@ -54,3 +54,24 @@ async def test_decompose_llm_unavailable_falls_back_to_single(monkeypatch):
     monkeypatch.setattr(llm, "decompose", boom)
     out = await triage.decompose("a and b")
     assert out == ["a and b"]                   # AD11 conservative single text
+
+
+def test_triage_complete_low_risk_auto():
+    r = triage.triage("2 extra bath towels to my room")
+    assert r.outcome == triage.TriageOutcome.AUTO
+
+
+def test_triage_missing_slot_clarifies():
+    r = triage.triage("I need something")
+    assert r.outcome == triage.TriageOutcome.CLARIFY
+
+
+def test_triage_d30_risk_flags():
+    r = triage.triage("there is water flooding the bathroom, urgent")
+    assert r.outcome == triage.TriageOutcome.FLAG
+
+
+def test_triage_tier_not_from_asserted_urgency():
+    a = triage.triage("extra towels")
+    b = triage.triage("URGENT!!! extra towels NOW")
+    assert a.outcome == b.outcome            # D20: urgency ≠ outcome/tier
