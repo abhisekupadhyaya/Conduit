@@ -4,7 +4,50 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
+
+
+def test_slice7_added_zero_schema():
+    """Positive zero-schema guard (Spec §6 / §11): the
+    ``inspect(Model).columns`` name-sets for the fan-out-touched models are
+    BYTE-IDENTICAL to slice 6 — proves Slice 7 added zero columns/tables
+    (the fan is expressed entirely through existing structure:
+    ``child_sub_request.request_id`` shared by siblings, unique-per-child
+    ``work_order.child_id``/``glitch.child_id``). The expected sets are the
+    literal slice-6 column names enumerated from the model definitions; any
+    add/drop fails this test red.
+    """
+    from conduit.shared.models import (ChildSubRequest, IssueCode,
+                                       Recommendation, WorkOrder)
+
+    expected = {
+        ChildSubRequest: {
+            "id", "request_id", "text", "issue_code_id", "uncategorized",
+            "outcome", "fulfilment_mode", "is_problem_report", "state",
+            "priority_tier", "closure", "revised_eta",
+            "predecessor_child_id", "requested_checkout", "created_at",
+            "updated_at",
+        },
+        WorkOrder: {
+            "id", "child_id", "kind", "routing_model",
+            "assigned_servicer_id", "accountable_owner_id", "section_id",
+            "priority_tier", "queue_position", "state", "completion_notes",
+            "created_at", "updated_at",
+        },
+        IssueCode: {
+            "id", "code", "label", "department", "fulfilment_mode",
+            "routing_model", "intent_kind", "is_reservation_mutation",
+            "status", "sla_preset_id", "created_at", "updated_at",
+        },
+        Recommendation: {
+            "escalation_id", "action", "rationale_text", "created_at",
+        },
+    }
+    for model, names in expected.items():
+        assert {c.name for c in inspect(model).columns} == names, (
+            f"{model.__name__} column-set drifted from the slice-6 "
+            f"zero-schema baseline (Slice 7 must add no columns/tables)")
 
 
 def test_down_revision_chains_to_0002():

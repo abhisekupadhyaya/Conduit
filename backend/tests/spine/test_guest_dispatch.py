@@ -113,7 +113,14 @@ async def _seed_dispatch_world(db, make_account):
 
 
 async def test_guest_dispatch_spine(client, make_account, login, db,
-                                    fake_llm):
+                                    fake_llm, fake_decompose):
+    # Slice 7 makes intake multi-intent. This is a SINGLE-need dispatch
+    # script (``scalar_one()`` on the one child / its one WorkOrder). The
+    # ``fake_decompose`` double DEFAULTS to identity (1 message → 1 text —
+    # ``state["texts"]`` unset), so the single utterance fans to exactly
+    # one child and every ``scalar_one()`` stays unambiguous. No
+    # behavioural assertion changes — only the single-intent assumption is
+    # made explicit/deterministic.
     guest, srv, sec, ic = await _seed_dispatch_world(db, make_account)
 
     async def fclassify_dispatch(t, cat):
