@@ -75,3 +75,44 @@ def test_triage_tier_not_from_asserted_urgency():
     a = triage.triage("extra towels")
     b = triage.triage("URGENT!!! extra towels NOW")
     assert a.outcome == b.outcome            # D20: urgency ≠ outcome/tier
+
+
+# --- Code-review regression locks (Important #1/#2, Minor #3) ----------------
+
+def test_triage_checkout_info_question_is_not_a_mutation_flag():
+    # spec §9.2: the canonical "checkout?" child is a no-dispatch info
+    # question, NOT a reservation/revenue mutation. triage emits only
+    # AUTO/CLARIFY/FLAG (no-dispatch routing is decided elsewhere by
+    # issue-code), so a complete low-risk info question ⇒ AUTO.
+    assert triage.triage("what time is checkout?").outcome == \
+        triage.TriageOutcome.AUTO
+    assert triage.triage("what time is checkout").outcome == \
+        triage.TriageOutcome.AUTO
+
+
+def test_triage_genuine_late_checkout_mutation_still_flags():
+    # D24 / §7.2: a genuine reservation-mutation phrase still FLAGs.
+    assert triage.triage("I want a late checkout").outcome == \
+        triage.TriageOutcome.FLAG
+    assert triage.triage("please extend my stay").outcome == \
+        triage.TriageOutcome.FLAG
+
+
+def test_triage_word_boundary_does_not_false_flag_charger():
+    # 'charge' is a substring of 'charger' but not a word-boundary hit.
+    assert triage.triage("my phone charger is missing").outcome == \
+        triage.TriageOutcome.AUTO
+    assert triage.triage("please bring me a charger").outcome == \
+        triage.TriageOutcome.AUTO
+
+
+def test_triage_word_boundary_does_not_false_flag_fireplace():
+    # 'fire' is a substring of 'fireplace' but not a word-boundary hit.
+    assert triage.triage("fireplace instructions please").outcome == \
+        triage.TriageOutcome.AUTO
+
+
+def test_triage_real_fire_still_flags():
+    # Positive safety check: a true fire hazard still FLAGs (D30).
+    assert triage.triage("there is a fire in my room").outcome == \
+        triage.TriageOutcome.FLAG

@@ -97,7 +97,7 @@ async def classify(text: str, catalog: list[dict],
     return result
 
 
-# --- Deterministic D30 objective-risk lexicon (spec §7.2 / §7.4) -------------
+# --- Deterministic D30 objective-risk lexicon (spec §7.2 / D5 / D30) ---------
 # D30: the only risk triggers are the *objective* categories
 # money / safety / move / mutation. Tone/urgency is NEVER a trigger (D20).
 # Kept small, readable and word-boundary matched so a substring of an
@@ -117,10 +117,17 @@ _RISK_MOVE = (  # move / relocation request → FLAG (relocation-subflow §1)
     "different room", "another room", "new room",
 )
 _RISK_MUTATION = (  # reservation / revenue mutation → FLAG, never AUTO (D24)
-    "check out", "checkout", "check-out", "early checkout", "late checkout",
-    "extend my stay", "extend stay", "stay longer", "cancel my reservation",
-    "cancel reservation", "cancel my booking", "change my reservation",
-    "modify my reservation", "extra night", "another night",
+    # NOTE: bare "checkout"/"check out"/"check-out" are deliberately ABSENT.
+    # spec §9.2: the canonical "checkout?" child is a no-dispatch info
+    # question, not a reservation/revenue mutation. True reservation-mutation
+    # codes are already force-FLAGged by classify's Resolution A
+    # (is_reservation_mutation); the bare token here was redundant and
+    # mis-FLAGged "what time is checkout?". Only QUALIFIED mutation phrases
+    # that are genuine mutations remain (D24 / §7.2).
+    "early checkout", "late checkout", "extend my stay", "extend stay",
+    "stay longer", "cancel my reservation", "cancel reservation",
+    "cancel my booking", "change my reservation", "modify my reservation",
+    "extra night", "another night",
 )
 
 # D20: urgency / tone intensifiers carry NO risk meaning. Stripped before any
@@ -152,7 +159,7 @@ def triage(child_text: str) -> TriagedChild:
     Pure: NO LLM, NO DB, NO clock. ``classify`` does extraction; ``triage``
     decides only the *outcome* from deterministic rules over the text.
 
-    Rulebook (spec §7.2 / §7.4), evaluated in order:
+    Rulebook (spec §7.2 / D5 / D30), evaluated in order:
 
     1. **FLAG** — an objective D30 risk category is present: safety hazard,
        money/billing dispute, a move/relocation request, or a
@@ -175,7 +182,14 @@ def triage(child_text: str) -> TriagedChild:
     probe = _strip_urgency(child_text)
 
     def _hit(lexicon: tuple[str, ...]) -> bool:
-        return any(term in probe for term in lexicon)
+        # Genuine word-boundary match (the docstring/comment claim): a term
+        # only fires as a whole word/phrase, so "charge" ⊄ "charger",
+        # "fire" ⊄ "fireplace". Multi-word phrases ("broken glass",
+        # "late checkout") work since internal spaces are literal. Pure
+        # and deterministic — no I/O, no clock.
+        return any(
+            re.search(rf"\b{re.escape(term)}\b", probe) for term in lexicon
+        )
 
     # (1) Objective D30 risk → FLAG (money / safety / move / mutation).
     if (_hit(_RISK_SAFETY) or _hit(_RISK_MONEY)
