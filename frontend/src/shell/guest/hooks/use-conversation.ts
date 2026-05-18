@@ -22,8 +22,13 @@ export type Child = {
   answer?: string | null
   closure_prompt?: boolean | null
   state?: string | null
+  // D36 split-echo: server-decided per-child label + triage outcome
+  // (auto|clarify|flag|no_dispatch). Additive output only.
+  issue_label?: string | null
+  outcome?: string
 }
-export type Req = { request_id: string; children: Child[] }
+// D36 split-echo: server-decided (≥2 children ⇒ echo, 1 ⇒ instant-ack).
+export type Req = { request_id: string; children: Child[]; split: boolean }
 
 // E1 backend shape (conduit/guest/schemas/requests.py — DispatchCardOut). The
 // curated guest-facing card: NAME never id (D17), server-provided revised_eta
