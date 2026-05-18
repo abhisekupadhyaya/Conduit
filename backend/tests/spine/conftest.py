@@ -247,11 +247,15 @@ def _leak_sentinel():
 def fake_decompose(monkeypatch):
     """Deterministic decompose double. Default: identity (1 message → 1 text)
     so every single-need fixture stays byte-identical. Tests that want a
-    multi-need split set state["texts"] to a list."""
+    multi-need split set state["texts"] to a list.
+
+    Async, mirroring ``fake_llm``'s async wrappers: the real
+    ``triage.decompose`` is ``async`` (D35), so the double must be awaitable
+    or ``intake``'s ``await triage.decompose(...)`` would raise."""
     from conduit.shared.domain import triage as _t
     state = {"texts": None}
 
-    def _d(raw_text: str):
+    async def _d(raw_text: str):
         return state["texts"] if state["texts"] is not None else [raw_text]
 
     monkeypatch.setattr(_t, "decompose", _d)
