@@ -24,3 +24,33 @@ async def test_unknown_code_is_uncategorized(monkeypatch):
     monkeypatch.setattr(llm, "classify", fake)
     out = await triage.classify("zzz", [])
     assert out[0].uncategorized is True and out[0].outcome == "clarify"
+
+
+async def test_decompose_single_need_returns_one(monkeypatch):
+    async def fake(t): return [t]
+    monkeypatch.setattr(llm, "decompose", fake)
+    assert await triage.decompose("can I get extra towels") == \
+        ["can I get extra towels"]
+
+
+async def test_decompose_multi_need_returns_n(monkeypatch):
+    async def fake(t):
+        return ["extra towels", "the TV is broken", "what time is checkout"]
+    monkeypatch.setattr(llm, "decompose", fake)
+    out = await triage.decompose(
+        "towels, the TV is broken, and what time is checkout?")
+    assert out == ["extra towels", "the TV is broken", "what time is checkout"]
+
+
+async def test_decompose_empty_or_garbage_never_zero(monkeypatch):
+    async def fake(t): return []
+    monkeypatch.setattr(llm, "decompose", fake)
+    out = await triage.decompose("zzz")
+    assert out == ["zzz"]                       # never 0; never a silent drop
+
+
+async def test_decompose_llm_unavailable_falls_back_to_single(monkeypatch):
+    async def boom(t): raise llm.LLMUnavailable("down")
+    monkeypatch.setattr(llm, "decompose", boom)
+    out = await triage.decompose("a and b")
+    assert out == ["a and b"]                   # AD11 conservative single text

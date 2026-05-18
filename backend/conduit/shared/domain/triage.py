@@ -33,13 +33,18 @@ class TriagedChild:
     requested_checkout: "dt.datetime | None" = None  # D24 extracted target
 
 
-def decompose(raw_text: str) -> list[str]:
+async def decompose(raw_text: str) -> list[str]:
     """One guest message → N independent child texts (D35).
 
-    >1 ⇒ caller echoes the split back (D36). LLM-assisted; failure must fall
-    into a conservative path, never silently drop items (AD11).
-    """
-    raise NotImplementedError
+    >1 ⇒ caller echoes the split back (D36). LLM-assisted; any failure or an
+    empty result falls back to the single original text — never 0, never a
+    silent drop (AD11)."""
+    try:
+        texts = await llm.decompose(raw_text)
+    except llm.LLMUnavailable:
+        return [raw_text]
+    cleaned = [t.strip() for t in (texts or []) if t and t.strip()]
+    return cleaned or [raw_text]
 
 
 async def classify(text: str, catalog: list[dict],
