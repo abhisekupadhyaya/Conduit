@@ -129,6 +129,23 @@ async def test_seed_survives_reseed(db):
     assert again.status == "disabled"                     # supervisor edit survived
 
 
+async def test_seeded_fo_guest_move_origin_system(db):
+    """The seeded ``FO-GUEST-MOVE`` issue code exists in the UNFILTERED
+    supervisor catalog with ``origin == 'system'`` (spec §6 Seed). B2 owns
+    the guest-catalog ``origin='guest'`` filter — B1 only proves the seed
+    lands with the system origin via the unfiltered ``list_codes`` path."""
+    from conduit.seed import ensure_issue_codes
+    from conduit.supervisor.dal import issue_codes as icdal
+
+    await ensure_issue_codes(db)
+    await db.flush()
+    codes = await icdal.list_codes(db)                     # unfiltered catalog
+    by_code = {c.code: c for c in codes}
+    assert "FO-GUEST-MOVE" in by_code, (
+        "seeded FO-GUEST-MOVE missing from unfiltered supervisor catalog")
+    assert by_code["FO-GUEST-MOVE"].origin == "system"
+
+
 async def test_one_event_per_transition(db, seeded_guest_with_stay, fake_llm):
     from conduit.seed import ensure_issue_codes
     from conduit.shared.models import (Event, EventChildAnswered,

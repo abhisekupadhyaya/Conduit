@@ -17,7 +17,8 @@ class WorkOrder(Base):
     __tablename__ = "work_order"
     __table_args__ = (
         CheckConstraint(
-            "kind in ('dispatch','human_concierge_answer')",
+            "kind in ('dispatch','human_concierge_answer',"
+            "'relocation_move')",
             name="ck_wo_kind",
         ),
         CheckConstraint(
