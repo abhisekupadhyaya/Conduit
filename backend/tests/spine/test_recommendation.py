@@ -6,6 +6,7 @@ per trigger; the LLM seam only renders the rationale string and is STUBBED
 by default (LLM boxed — D5/D30), so auto-proceed never executes free-form
 text.
 """
+import datetime as dt
 import uuid
 
 from conduit.shared.domain.recommendation import (
@@ -87,6 +88,23 @@ def test_triage_flag_verdict_deny():
     assert draft.action == "deny"
     assert draft.params == {}
     assert draft.rationale_text
+
+
+def test_triage_flag_reservation_mutation_yields_apply_action():
+    when = dt.datetime(2026, 5, 16, 14, 0, tzinfo=dt.timezone.utc)
+    draft = build(trigger="triage_flag", child={"id": 1},
+                  context={"verdict": "approve", "requested_checkout": when})
+    assert draft.action == "apply_reservation_mutation"
+    assert draft.params == {"field": "check_out", "requested_value": when}
+    assert draft.rationale_text
+
+
+def test_triage_flag_without_mutation_still_approve_deny():
+    d1 = build(trigger="triage_flag", child={"id": 1},
+               context={"verdict": "approve"})
+    d2 = build(trigger="triage_flag", child={"id": 1},
+               context={"verdict": "nope"})
+    assert d1.action == "approve" and d2.action == "deny"
 
 
 # ---------------------------------------------------- llm seam + purity ----

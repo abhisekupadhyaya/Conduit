@@ -55,7 +55,8 @@ async def list_conversation(actor: Actor = Depends(_guest),
             cs.append(ChildOut(child_id=str(c.id), text=c.text,
                 issue_code=None,
                 terminal=("answered" if c.state in ("answered", "closed")
-                          and res and res.mode == "grounded_answer"
+                          and res and res.mode in (
+                              "grounded_answer", "reservation_mutation")
                           else "logged"),
                 answer=(res.answer_text if res else None),
                 closure_prompt=(c.state == "answered"),

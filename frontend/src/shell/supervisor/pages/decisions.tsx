@@ -35,11 +35,13 @@ import {
 //   reassign  -> target_account_id
 //   relocate  -> target_room_id
 //   extend_sla-> extend_seconds
+//   apply_reservation_mutation -> requested_value
 //   broadcast/approve/deny -> no params
 const REC_ACTIONS = [
   "reassign",
   "relocate",
   "extend_sla",
+  "apply_reservation_mutation",
   "broadcast",
   "approve",
   "deny",
@@ -74,6 +76,9 @@ function ResolveDialog({ d }: { d: DecisionOut }) {
   const [extendSeconds, setExtendSeconds] = useState(
     paramValue(rec?.detail ?? {}, "extend_seconds"),
   )
+  const [requestedValue, setRequestedValue] = useState(
+    paramValue(rec?.detail ?? {}, "requested_value"),
+  )
 
   async function submit() {
     try {
@@ -91,6 +96,8 @@ function ResolveDialog({ d }: { d: DecisionOut }) {
           payload.target_room_id = targetRoomId.trim()
         if (typedAction === "extend_sla")
           payload.extend_seconds = Number(extendSeconds)
+        if (typedAction === "apply_reservation_mutation")
+          payload.requested_value = requestedValue.trim()
         await resolve.mutateAsync({
           escalationId: d.escalation_id,
           action: resolveAction,
@@ -214,6 +221,17 @@ function ResolveDialog({ d }: { d: DecisionOut }) {
                     type="number"
                     value={extendSeconds}
                     onChange={(e) => setExtendSeconds(e.target.value)}
+                  />
+                </div>
+              )}
+              {typedAction === "apply_reservation_mutation" && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="requested_value">requested value</Label>
+                  <Input
+                    id="requested_value"
+                    type="datetime-local"
+                    value={requestedValue}
+                    onChange={(e) => setRequestedValue(e.target.value)}
                   />
                 </div>
               )}

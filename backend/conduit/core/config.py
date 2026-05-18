@@ -49,6 +49,10 @@ class Settings(BaseSettings):
 
     engine_enabled: bool = True
     engine_poll_seconds: int = 10
+    # Sliding conversation context window — number of most-recent transcript
+    # messages (guest + system, either direction) fed to the LLM as
+    # extraction-only prompt context. Not supervisor CONFIG (YAGNI).
+    conversation_window: int = 50
 
     @property
     def cors_origin_list(self) -> list[str]:
