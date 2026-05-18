@@ -29,7 +29,8 @@ class Event(Base):
             "'escalation_resolved','recommendation_created','glitch_opened',"
             "'glitch_closed','cross_dept_notified','timer_fired',"
             "'sla_preset_created','sla_preset_updated',"
-            "'escalation_ladder_created','escalation_ladder_updated')",
+            "'escalation_ladder_created','escalation_ladder_updated',"
+            "'reservation_mutated')",
             name="ck_event_type"),
     )
     id: Mapped[uuid.UUID] = mapped_column(
@@ -396,3 +397,20 @@ class EventEscalationLadderUpdated(Base):
     escalation_ladder_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("escalation_ladder.id"), nullable=False,
     )
+
+
+class EventReservationMutated(Base):
+    __tablename__ = "event_reservation_mutated"
+    __table_args__ = (
+        CheckConstraint("field = 'check_out'",
+                        name="ck_event_resv_mut_field"),
+    )
+    event_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("event.id"), primary_key=True)
+    stay_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("stay.id"), nullable=False)
+    field: Mapped[str] = mapped_column(String, nullable=False)
+    old_value: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)
+    new_value: Mapped[dt.datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False)

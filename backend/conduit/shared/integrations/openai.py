@@ -36,6 +36,7 @@ class _Child(BaseModel):
     fulfilment_mode: Literal["dispatch", "no_dispatch"] | None
     outcome: Literal["auto", "clarify", "flag", "no_dispatch"]
     is_problem_report: bool
+    requested_checkout: str | None = None
 
 
 class _Decompose(BaseModel):
@@ -118,6 +119,10 @@ _SYS_CLASSIFY = (
     "(then rule 3 applies: outcome 'no_dispatch'). "
     "outcome MUST be exactly one of: auto, clarify, flag, "
     "no_dispatch. Never drop a need; never omit a child."
+    " If a child matches a reservation-mutation code and the guest is "
+    "asking to change their checkout time/date, set requested_checkout to "
+    "the requested checkout as an ISO-8601 timestamp resolved against the "
+    "conversation; otherwise leave requested_checkout null."
 )
 _SYS_GROUND = (
     "Answer ONLY from CONTEXT; insufficient => grounded=false, no answer "
@@ -189,7 +194,8 @@ async def _parse_smalltalk(model: str, message: str) -> _Smalltalk:
     return r.output_parsed
 
 
-async def classify(text: str, catalog: list[dict]) -> list[dict]:
+async def classify(text: str, catalog: list[dict],
+                   history: str = "") -> list[dict]:
     s = get_settings()
     if _circuit_open():
         raise LLMUnavailable("circuit open")
@@ -197,9 +203,11 @@ async def classify(text: str, catalog: list[dict]) -> list[dict]:
         f"{c['code']} | {c['label']} | {c['fulfilment_mode']} | "
         f"mutation={c['is_reservation_mutation']}" for c in catalog)
     model = s.openai_model
+    user = (f"CONVERSATION (oldest→newest, context only):\n{history}\n\n"
+            f"CURRENT MESSAGE:\n{text}") if history else text
     try:
         parsed = await _parse_classify(
-            model, _SYS_CLASSIFY + "\nCATALOG:\n" + cat, text)
+            model, _SYS_CLASSIFY + "\nCATALOG:\n" + cat, user)
     except Exception as e:  # timeout / circuit / api error
         _record_failure()
         raise LLMUnavailable(str(e))
@@ -207,14 +215,16 @@ async def classify(text: str, catalog: list[dict]) -> list[dict]:
     return [c.model_dump() for c in parsed.children]
 
 
-async def ground(question: str, context: str) -> dict:
+async def ground(question: str, context: str, history: str = "") -> dict:
     s = get_settings()
     if _circuit_open():
         raise LLMUnavailable("circuit open")
     model = s.openai_model
+    q = (f"CONVERSATION (context only):\n{history}\n\nQUESTION: {question}"
+         if history else f"QUESTION: {question}")
     try:
         parsed = await _parse_ground(
-            model, f"QUESTION: {question}\n\nCONTEXT\n{context}")
+            model, f"{q}\n\nCONTEXT\n{context}")
     except Exception as e:
         _record_failure()
         raise LLMUnavailable(str(e))

@@ -21,7 +21,9 @@ from conduit.guest.dal import requests as rdal
 from conduit.guest.dal import resolutions as resdal
 from conduit.guest.services import nodispatch
 from conduit.guest.services import smalltalk
-from conduit.shared.domain import lifecycle, routing, triage
+from conduit.core.config import get_settings
+from conduit.shared.domain import conversation, lifecycle, routing, triage
+from conduit.shared.engine import spine
 from conduit.shared.events import writer
 from conduit.shared.integrations.openai import LLMUnavailable
 from conduit.shared.models import (IssueCode, Request, Room, Roster,
@@ -152,8 +154,29 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
                     fulfilment_mode=c.fulfilment_mode,
                     is_reservation_mutation=c.is_reservation_mutation)
                for c in await icdal.list_codes(s, status="active")]
+    # --- Conversation window (extraction-only, Spec §7.1) ----------------
+    # Reuse the EXACT read model the conversation view uses: prior requests
+    # for this guest on the ACTIVE stay (request.stay_id == stay.id),
+    # interleaved guest raw_text + system grounded answer_text, time-ordered
+    # (rdal.list_requests_for_guest orders by created_at ascending — the
+    # window module assumes caller-ordered oldest→newest).
+    turns: list[conversation.Turn] = []
+    prior = await rdal.list_requests_for_guest(s, actor.id)
+    for pr in prior:
+        if pr.id == req.id:
+            continue                                   # the in-flight msg
+        if pr.stay_id != stay.id:
+            continue                                   # per-stay isolation
+        turns.append(conversation.Turn(role="guest", text=pr.raw_text))
+        for c in await cdal.list_children_for_request(s, pr.id):
+            res = await resdal.get_resolution(s, c.id)
+            if res is not None and res.answer_text:
+                turns.append(conversation.Turn(
+                    role="system", text=res.answer_text))
+    history = conversation.window(
+        turns, limit=get_settings().conversation_window)
     try:
-        triaged = await triage.classify(text, catalog)
+        triaged = await triage.classify(text, catalog, history)
     except LLMUnavailable:                             # AD11 degrade only
         triaged = [triage.TriagedChild(text=text, issue_code=None,
             outcome=triage.TriageOutcome("clarify"), uncategorized=True,
@@ -167,20 +190,34 @@ async def submit_request(s: AsyncSession, actor, text: str) -> dict:
             issue_code_id=ic.id if ic else None, uncategorized=t.uncategorized,
             outcome=t.outcome.value,
             fulfilment_mode=(ic.fulfilment_mode if ic else None),
-            is_problem_report=t.is_problem_report, state="intake")
+            is_problem_report=t.is_problem_report,
+            requested_checkout=t.requested_checkout, state="intake")
         await s.flush()
         await lifecycle.transition(s, child, "triaged",
             actor_account_id=actor.id)
         if ic is not None and ic.code == "SMALLTALK":
             term = await smalltalk.resolve(s, child, actor.id)
         elif t.outcome.value == "no_dispatch":
-            term = await nodispatch.resolve(s, child, ambient, actor.id)
+            term = await nodispatch.resolve(s, child, ambient, actor.id,
+                                            history=history)
         elif (t.outcome.value == "auto" and ic is not None
               and ic.fulfilment_mode == "dispatch"):
             # AUTO + dispatch ⇒ branch to the C4 routing-effect (§9.2). All
             # other outcomes (clarify/flag/uncategorized/no-code AUTO) keep
             # the byte-identical park behaviour below — back-compat.
             term = await _route_dispatch_child(s, child, ic, actor.id)
+        elif (t.outcome.value == "flag" and ic is not None
+              and ic.is_reservation_mutation):
+            # D24 answer↔action seam: ONLY a reservation-mutation flag rides
+            # the spine's generic FLAG trigger → decision queue (Spec §7.3).
+            # Every other terminal case keeps the byte-identical park below
+            # (minimal blast radius). open_escalation reads
+            # child.requested_checkout via _assemble_context (Task 11d) — the
+            # child row was flushed above (insert + lifecycle transition).
+            await spine.open_escalation(
+                s, child, "triage_flag",
+                actor_account_id=actor.id, verdict="approve")
+            term = {"terminal": "flagged", "state": child.state}
         else:
             await writer.emit_child(s, "child_parked", child.id, actor.id)
             term = {"terminal": "logged"}
