@@ -26,6 +26,13 @@ async def test_response_shapes_parse_back(client, make_account, login):
     IssueCodeOut(**r.json())                          # extra=forbid → red on drift
 
 
+def test_request_out_shapes_parse_back():
+    from conduit.guest.schemas.conversation import RequestOut, ChildOut
+    RequestOut(request_id="r", split=True, children=[ChildOut(
+        child_id="c", text="t", issue_code=None, issue_label="L",
+        outcome="auto", terminal="logged", state="routing")])
+
+
 async def test_resolution_A_request_rejects_mutation(client, make_account, login):
     await make_account("supervisor", "s", "pw-123456")
     await login("s", "pw-123456")
