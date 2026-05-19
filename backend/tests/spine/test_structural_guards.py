@@ -26,6 +26,13 @@ async def test_response_shapes_parse_back(client, make_account, login):
     IssueCodeOut(**r.json())                          # extra=forbid → red on drift
 
 
+def test_request_out_shapes_parse_back():
+    from conduit.guest.schemas.conversation import RequestOut, ChildOut
+    RequestOut(request_id="r", split=True, children=[ChildOut(
+        child_id="c", text="t", issue_code=None, issue_label="L",
+        outcome="auto", terminal="logged", state="routing")])
+
+
 async def test_resolution_A_request_rejects_mutation(client, make_account, login):
     await make_account("supervisor", "s", "pw-123456")
     await login("s", "pw-123456")
@@ -120,6 +127,50 @@ async def test_seed_survives_reseed(db):
     assert len(rows) == n1                                # no dup inserted
     again = await db.get(IssueCode, one.id)
     assert again.status == "disabled"                     # supervisor edit survived
+
+
+async def test_seeded_fo_guest_move_origin_system(db):
+    """The seeded ``FO-GUEST-MOVE`` issue code exists in the UNFILTERED
+    supervisor catalog with ``origin == 'system'`` (spec §6 Seed). B2 owns
+    the guest-catalog ``origin='guest'`` filter — B1 only proves the seed
+    lands with the system origin via the unfiltered ``list_codes`` path."""
+    from conduit.seed import ensure_issue_codes
+    from conduit.supervisor.dal import issue_codes as icdal
+
+    await ensure_issue_codes(db)
+    await db.flush()
+    codes = await icdal.list_codes(db)                     # unfiltered catalog
+    by_code = {c.code: c for c in codes}
+    assert "FO-GUEST-MOVE" in by_code, (
+        "seeded FO-GUEST-MOVE missing from unfiltered supervisor catalog")
+    assert by_code["FO-GUEST-MOVE"].origin == "system"
+
+
+async def test_guest_catalog_excludes_system_origin_code(db):
+    """Signature guard (spec §4/§6/§11): a ``origin='system'`` code
+    (``FO-GUEST-MOVE``) NEVER enters the guest classify catalog. The guest
+    path is ``list_codes(status='active', origin='guest')`` — it must EXCLUDE
+    ``FO-GUEST-MOVE``; the UNFILTERED supervisor path ``list_codes()`` must
+    still INCLUDE it (``origin == 'system'``), so supervisor CRUD sees both."""
+    from conduit.seed import ensure_issue_codes
+    from conduit.supervisor.dal import issue_codes as icdal
+
+    await ensure_issue_codes(db)
+    await db.flush()
+
+    # GUEST path (the new filtered call intake uses) — system code ABSENT.
+    guest_catalog = await icdal.list_codes(db, status="active",
+                                           origin="guest")
+    guest_codes = {c.code for c in guest_catalog}
+    assert "FO-GUEST-MOVE" not in guest_codes, (
+        "system-origin FO-GUEST-MOVE leaked into the guest classify catalog")
+
+    # UNFILTERED supervisor path — system code PRESENT with origin 'system'.
+    sup_catalog = await icdal.list_codes(db)
+    sup_by_code = {c.code: c for c in sup_catalog}
+    assert "FO-GUEST-MOVE" in sup_by_code, (
+        "FO-GUEST-MOVE missing from unfiltered supervisor catalog")
+    assert sup_by_code["FO-GUEST-MOVE"].origin == "system"
 
 
 async def test_one_event_per_transition(db, seeded_guest_with_stay, fake_llm):
@@ -644,3 +695,75 @@ async def test_g1_escalation_ladder_partial_unique(db, make_account):
     db.add(_ladder())                                   # 2nd ACTIVE → reject
     with _pytest.raises(_IntegrityError):
         await db.flush()
+
+
+# ==========================================================================
+# Task B6 — the relocate-decision `detail` enrichment + the additive
+# `DispatchCardOut.relocated_to` are extra="forbid"-safe AND add ZERO
+# routes (the POSITIVE zero-surface proof, Spec §8/§4 "API"/§11). APPEND
+# -only: every test above is preserved verbatim.
+# ==========================================================================
+def test_b6_relocate_detail_and_relocated_to_parse_back():
+    """``DecisionOut.detail`` carrying the relocate decision-card keys and
+    ``DispatchCardOut`` carrying the additive ``relocated_to`` both parse
+    back under ``extra="forbid"`` — and the legacy shapes still parse (the
+    additive contract: default ``relocated_to=None`` keeps existing
+    constructions valid)."""
+    from conduit.guest.schemas.requests import DispatchCardOut
+    from conduit.supervisor.schemas.decisions import DecisionOut
+
+    # The enriched relocate detail dict round-trips (``detail`` is a free
+    # ``dict`` — the enrichment adds keys, no schema-class change).
+    d = DecisionOut(
+        escalation_id=str(_uuid.uuid4()),
+        child_id=str(_uuid.uuid4()),
+        trigger="servicer_raised", state="open", cycle_count=0,
+        non_time_boxed=False,
+        recommendation={
+            "action": "relocate",
+            "rationale_text": "relocating guest",
+            "detail": {
+                "target_room_id": str(_uuid.uuid4()),
+                "current_room": str(_uuid.uuid4()),
+                "recommended_room": str(_uuid.uuid4()),
+                "eligible_rooms": [str(_uuid.uuid4()), str(_uuid.uuid4())],
+            }})
+    assert d.recommendation.detail["current_room"]
+    assert d.recommendation.detail["eligible_rooms"]
+
+    # The additive output: present + parses; absent → default None (legacy
+    # constructions stay valid); a stray key still rejected (forbid intact).
+    c = DispatchCardOut(child_id=str(_uuid.uuid4()), state="routing",
+                        relocated_to="R-NEW")
+    assert c.relocated_to == "R-NEW"
+    legacy = DispatchCardOut(child_id=str(_uuid.uuid4()), state="routing")
+    assert legacy.relocated_to is None
+    with _pytest.raises(Exception):
+        DispatchCardOut(child_id=str(_uuid.uuid4()), state="routing",
+                        __bogus_internal__="x")
+
+
+def test_b6_zero_new_routes_route_contract_unchanged():
+    """POSITIVE zero-surface proof (Spec §4 "API"/§8/§11): the B6 change is
+    additive-only — it adds NO dispatch-spine route. The live route
+    contract (sorted ``(METHOD, path)`` over every dispatch-spine route)
+    must be EXACTLY the established set: the two B6-touched endpoints stay
+    single-method (``GET`` decisions, ``GET`` requests, ``POST`` resolve)
+    and NO new path appears under any spine prefix."""
+    mp = set(_spine_method_paths())
+    # The two endpoints B6 touches are present and UN-multiplied (no new
+    # verb / sibling path was introduced to carry the relocate variant).
+    assert ("GET", "/api/supervisor/decisions") in mp
+    assert ("POST", "/api/supervisor/decisions/{escalation_id}/resolve") in mp
+    assert ("GET", "/api/guest/requests") in mp
+    # Zero NEW relocate-specific routes: no path mentions "relocate"/"room".
+    for _m, path in mp:
+        low = path.lower()
+        assert "relocate" not in low and "/rooms" not in low, (
+            f"a relocate/room dispatch-spine route appeared: {path} "
+            "(B6 must be ZERO new routes — service/schema only)")
+    # The decisions surface is exactly the inherited 2-route shape
+    # (list + resolve) — no third decisions route was added.
+    dec = sorted(p for _m, p in mp if p.startswith("/api/supervisor/decisions"))
+    assert dec == ["/api/supervisor/decisions",
+                   "/api/supervisor/decisions/{escalation_id}/resolve"], dec

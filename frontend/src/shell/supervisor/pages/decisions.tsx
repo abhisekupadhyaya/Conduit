@@ -17,6 +17,7 @@ import { toast } from "sonner"
 import { PageHeader } from "@/components/layout/page-header"
 import { DataTableShell } from "@/components/common/data-table-shell"
 import { Countdown } from "@/components/common/countdown"
+import { RelocationDecision } from "@/components/common/relocation-decision"
 import {
   useDecisions,
   useResolveDecision,
@@ -264,6 +265,11 @@ export function DecisionsPage() {
         ? "empty"
         : "ready"
 
+  // Spec §10 — the `relocate` action gets the hero card; EVERY other action
+  // keeps the existing compact row/dialog UNCHANGED.
+  const isRelocate = (d: DecisionOut) =>
+    d.recommendation?.action === "relocate"
+
   const slaCell = (d: DecisionOut) => {
     if (d.non_time_boxed)
       return (
@@ -302,57 +308,71 @@ export function DecisionsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((d) => (
-                <TableRow key={d.escalation_id}>
-                  <TableCell className="font-medium">
-                    {d.trigger.replace(/_/g, " ")}
-                  </TableCell>
-                  <TableCell>
-                    {d.issue_label ?? "Uncategorized"}
-                  </TableCell>
-                  <TableCell>
-                    {d.recommendation ? (
-                      <span className="font-mono text-xs">
-                        {d.recommendation.action}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="tabular-nums">
-                    {d.cycle_count}
-                  </TableCell>
-                  <TableCell>{slaCell(d)}</TableCell>
-                  <TableCell className="text-right">
-                    <ResolveDialog d={d} />
-                  </TableCell>
-                </TableRow>
-              ))}
+              {rows.map((d) =>
+                isRelocate(d) ? (
+                  // The hero relocate card spans the row; all other actions
+                  // keep the compact row below, unchanged.
+                  <TableRow key={d.escalation_id}>
+                    <TableCell colSpan={6} className="p-2">
+                      <RelocationDecision d={d} />
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <TableRow key={d.escalation_id}>
+                    <TableCell className="font-medium">
+                      {d.trigger.replace(/_/g, " ")}
+                    </TableCell>
+                    <TableCell>
+                      {d.issue_label ?? "Uncategorized"}
+                    </TableCell>
+                    <TableCell>
+                      {d.recommendation ? (
+                        <span className="font-mono text-xs">
+                          {d.recommendation.action}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground">—</span>
+                      )}
+                    </TableCell>
+                    <TableCell className="tabular-nums">
+                      {d.cycle_count}
+                    </TableCell>
+                    <TableCell>{slaCell(d)}</TableCell>
+                    <TableCell className="text-right">
+                      <ResolveDialog d={d} />
+                    </TableCell>
+                  </TableRow>
+                ),
+              )}
             </TableBody>
           </Table>
         }
-        cards={rows.map((d) => (
-          <div
-            key={d.escalation_id}
-            className="space-y-2 rounded-lg border p-3"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium">
-                {d.trigger.replace(/_/g, " ")}
-              </span>
-              {slaCell(d)}
+        cards={rows.map((d) =>
+          isRelocate(d) ? (
+            <RelocationDecision key={d.escalation_id} d={d} />
+          ) : (
+            <div
+              key={d.escalation_id}
+              className="space-y-2 rounded-lg border p-3"
+            >
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium">
+                  {d.trigger.replace(/_/g, " ")}
+                </span>
+                {slaCell(d)}
+              </div>
+              <div className="text-sm">
+                {d.issue_label ?? "Uncategorized"}
+              </div>
+              <div className="text-muted-foreground text-xs">
+                {d.recommendation
+                  ? `rec: ${d.recommendation.action} · cycle ${d.cycle_count}`
+                  : `no rec · cycle ${d.cycle_count}`}
+              </div>
+              <ResolveDialog d={d} />
             </div>
-            <div className="text-sm">
-              {d.issue_label ?? "Uncategorized"}
-            </div>
-            <div className="text-muted-foreground text-xs">
-              {d.recommendation
-                ? `rec: ${d.recommendation.action} · cycle ${d.cycle_count}`
-                : `no rec · cycle ${d.cycle_count}`}
-            </div>
-            <ResolveDialog d={d} />
-          </div>
-        ))}
+          ),
+        )}
       />
     </div>
   )

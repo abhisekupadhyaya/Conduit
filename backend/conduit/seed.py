@@ -52,6 +52,10 @@ _DEFAULT_ISSUE_CODES = [
          department="concierge", fulfilment_mode="no_dispatch",
          routing_model="none", intent_kind="service",
          is_reservation_mutation=False),
+    dict(code="FO-GUEST-MOVE", label="Guest move",
+         department="front_office", fulfilment_mode="dispatch",
+         routing_model="section_pooled", intent_kind="service",
+         is_reservation_mutation=False, origin="system"),
 ]
 
 

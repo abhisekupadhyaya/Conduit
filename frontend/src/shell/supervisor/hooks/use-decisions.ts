@@ -18,6 +18,52 @@ export type RecommendationOut = {
   detail: Record<string, unknown>
 }
 
+// Spec §8 / §4 (decision: API): for `action === 'relocate'` the server
+// populates `detail` with the room context (no schema-class change). This is
+// an ADDITIVE narrowing of `RecommendationOut.detail` — existing callers that
+// read `detail` as `Record<string, unknown>` are unaffected.
+export type RelocateRoom = {
+  id: string
+  label: string
+}
+export type RelocateDetail = {
+  current_room?: RelocateRoom | null
+  recommended_room?: RelocateRoom | null
+  eligible_rooms?: RelocateRoom[]
+  // The manual Glitch recovery surfaced for the comp note (D19), if present.
+  recovery_owed?: string | number | null
+  recovery_cost?: string | number | null
+}
+
+/** Narrow a relocate recommendation's `detail` to the typed room context.
+ *  Defensive: tolerates partial/absent fields (additive, server-populated). */
+export function asRelocateDetail(
+  detail: Record<string, unknown>,
+): RelocateDetail {
+  const room = (v: unknown): RelocateRoom | null => {
+    if (v && typeof v === "object") {
+      const o = v as Record<string, unknown>
+      if (o.id != null)
+        return { id: String(o.id), label: String(o.label ?? o.id) }
+    }
+    return null
+  }
+  const eligible = Array.isArray(detail.eligible_rooms)
+    ? (detail.eligible_rooms as unknown[])
+        .map(room)
+        .filter((r): r is RelocateRoom => r !== null)
+    : []
+  return {
+    current_room: room(detail.current_room),
+    recommended_room: room(detail.recommended_room),
+    eligible_rooms: eligible,
+    recovery_owed:
+      detail.recovery_owed as string | number | null | undefined ?? null,
+    recovery_cost:
+      detail.recovery_cost as string | number | null | undefined ?? null,
+  }
+}
+
 export type DecisionOut = {
   escalation_id: string
   child_id: string

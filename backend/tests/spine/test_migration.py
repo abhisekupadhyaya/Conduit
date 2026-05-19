@@ -4,7 +4,57 @@ import uuid
 
 import pytest
 import sqlalchemy as sa
+from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
+
+
+def test_slice7_added_zero_schema():
+    """Positive minimal-schema guard (Spec §6 / §11). Slice 7 (multi-intent
+    fan-out) added ZERO columns/tables — the fan is expressed entirely
+    through existing structure (``child_sub_request.request_id`` shared by
+    siblings, unique-per-child ``work_order.child_id``/``glitch.child_id``).
+    Slice 8 (relocation, migration ``0007``) makes exactly ONE deliberate
+    additive column change per relocation-subflow-design §6:
+    ``issue_code.origin`` (the system-vs-guest code split). Slice 8 also
+    widens ``ck_wo_kind`` but that is a CHECK, not a column, so
+    ``WorkOrder``'s set is unaffected; ``RecRelocate`` is populate-not-add
+    (asserted byte-identical in ``test_migration_0007``). Expected sets are
+    the literal slice-6 names PLUS the single spec-§6-mandated
+    ``issue_code.origin``; ANY other add/drop fails this test red.
+    """
+    from conduit.shared.models import (ChildSubRequest, IssueCode,
+                                       Recommendation, WorkOrder)
+
+    expected = {
+        ChildSubRequest: {
+            "id", "request_id", "text", "issue_code_id", "uncategorized",
+            "outcome", "fulfilment_mode", "is_problem_report", "state",
+            "priority_tier", "closure", "revised_eta",
+            "predecessor_child_id", "requested_checkout", "created_at",
+            "updated_at",
+        },
+        WorkOrder: {
+            "id", "child_id", "kind", "routing_model",
+            "assigned_servicer_id", "accountable_owner_id", "section_id",
+            "priority_tier", "queue_position", "state", "completion_notes",
+            "created_at", "updated_at",
+        },
+        IssueCode: {
+            "id", "code", "label", "department", "fulfilment_mode",
+            "routing_model", "intent_kind", "is_reservation_mutation",
+            "status", "sla_preset_id", "created_at", "updated_at",
+            "origin",  # Slice 8 (relocation §6, migration 0007) — the ONE
+                       # deliberate additive column; nothing else may drift.
+        },
+        Recommendation: {
+            "escalation_id", "action", "rationale_text", "created_at",
+        },
+    }
+    for model, names in expected.items():
+        assert {c.name for c in inspect(model).columns} == names, (
+            f"{model.__name__} column-set drifted from the expected "
+            f"slice-6 + spec-§6 baseline (Slice 7 zero-schema; Slice 8 adds "
+            f"only issue_code.origin — any other add/drop is unintended)")
 
 
 def test_down_revision_chains_to_0002():

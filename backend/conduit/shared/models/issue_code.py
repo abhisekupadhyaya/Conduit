@@ -22,6 +22,8 @@ class IssueCode(Base):
                         name="ck_issue_code_intent"),
         CheckConstraint("status in ('active','disabled')",
                         name="ck_issue_code_status"),
+        CheckConstraint("origin in ('guest','system')",
+                        name="ck_issue_code_origin"),
     )
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True,
                                           default=uuid.uuid4)
@@ -36,6 +38,8 @@ class IssueCode(Base):
         Boolean, nullable=False, server_default="false")
     status: Mapped[str] = mapped_column(String, nullable=False,
                                         server_default="active")
+    origin: Mapped[str] = mapped_column(String, nullable=False,
+                                        server_default="guest")
     sla_preset_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("sla_preset.id"), nullable=True)
     created_at: Mapped[dt.datetime] = mapped_column(

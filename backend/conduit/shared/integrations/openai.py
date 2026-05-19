@@ -43,6 +43,10 @@ class _Decompose(BaseModel):
     children: list[_Child]
 
 
+class _NeedSplit(BaseModel):
+    needs: list[str]
+
+
 class _Ground(BaseModel):
     grounded: bool
     leaves_no_dispatch: bool
@@ -124,6 +128,11 @@ _SYS_CLASSIFY = (
     "the requested checkout as an ISO-8601 timestamp resolved against the "
     "conversation; otherwise leave requested_checkout null."
 )
+_SYS_DECOMPOSE = (
+    "Split the guest message into independent service needs; return each "
+    "need verbatim-ish as a separate string; a single need returns a "
+    "one-element list. Never merge distinct needs and never drop a need."
+)
 _SYS_GROUND = (
     "Answer ONLY from CONTEXT; insufficient => grounded=false, no answer "
     '(an honest "I\'ll have someone confirm" beats a wrong answer); if '
@@ -144,6 +153,20 @@ async def _parse_classify(model: str, sys: str, text: str) -> _Decompose:
         input=[{"role": "system", "content": sys},
                {"role": "user", "content": text}],
         text_format=_Decompose, reasoning={"effort": "low"})
+    return r.output_parsed
+
+
+@retry(
+    stop=stop_after_attempt(2),
+    retry=retry_if_exception_type(Exception),
+    reraise=True,
+)
+async def _parse_decompose(model: str, text: str) -> _NeedSplit:
+    r = await _client().responses.parse(
+        model=model,
+        input=[{"role": "system", "content": _SYS_DECOMPOSE},
+               {"role": "user", "content": text}],
+        text_format=_NeedSplit, reasoning={"effort": "low"})
     return r.output_parsed
 
 
@@ -213,6 +236,20 @@ async def classify(text: str, catalog: list[dict],
         raise LLMUnavailable(str(e))
     _record_success()
     return [c.model_dump() for c in parsed.children]
+
+
+async def decompose(raw_text: str) -> list[str]:
+    s = get_settings()
+    if _circuit_open():
+        raise LLMUnavailable("circuit open")
+    model = s.openai_model
+    try:
+        parsed = await _parse_decompose(model, raw_text)
+    except Exception as e:  # timeout / circuit / api error
+        _record_failure()
+        raise LLMUnavailable(str(e))
+    _record_success()
+    return list(parsed.needs)
 
 
 async def ground(question: str, context: str, history: str = "") -> dict:

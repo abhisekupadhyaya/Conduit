@@ -66,7 +66,17 @@ async def _events_of_type_for_child(db, detail_cls, child_id):
 
 
 async def test_e2e_no_dispatch_journey(client, make_account, login, db,
-                                       fake_llm, seeded_guest_with_stay):
+                                       fake_llm, fake_decompose,
+                                       seeded_guest_with_stay):
+    # Slice 7 makes intake multi-intent: the REAL ``triage.decompose`` would
+    # split phase F's two-clause utterance into ~2 texts, fanning each
+    # through ``fclassify_two`` → 4 children (≠ the 2 this single-vs-multi
+    # journey asserts). The ``fake_decompose`` double DEFAULTS to identity
+    # (1 message → 1 text — ``state["texts"]`` unset), so every single-need
+    # phase (B/C/D/E/G: ``children[0]`` / ``len == 1``) stays byte-identical
+    # and phase F's ONE message → ``fclassify_two`` → exactly 2 children.
+    # The journey's behavioural assertions (answers/terminals/KB) are
+    # unchanged — only the single-intent split assumption is reconciled.
     actor, ambient = seeded_guest_with_stay
 
     # ---- A. Supervisor creates + edits a code & a KB entry (HTTP) ---------

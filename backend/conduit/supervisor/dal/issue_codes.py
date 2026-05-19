@@ -19,10 +19,13 @@ async def get_by_code(s: AsyncSession, code: str) -> IssueCode | None:
     return res.scalars().first()
 
 
-async def list_codes(s: AsyncSession, status: str | None = None):
+async def list_codes(s: AsyncSession, status: str | None = None,
+                     origin: str | None = None):
     q = select(IssueCode)
     if status:
         q = q.where(IssueCode.status == status)
+    if origin:
+        q = q.where(IssueCode.origin == origin)
     return (await s.execute(q.order_by(IssueCode.code))).scalars().all()
 
 

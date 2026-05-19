@@ -293,3 +293,154 @@ async def _escalation_hops(s: AsyncSession, esc: Escalation, to: str,
               .where(Glitch.child_id == esc.child_id))).scalar_one_or_none()
         if gl is not None and glitch.legal(gl.state, "closed"):
             await transition(s, gl, "closed", actor_account_id=actor_id)
+
+        # Spawn the front-office "guest move" task (spec §7.3 / decisions 5a &
+        # 2). EXACTLY ONE per relocate resolution — only when a relocate
+        # actually occurred (stay_id + new_room_id supplied → real re-bind
+        # above). Reuses the triggering child's Request (decision 5a: lineage
+        # via ``predecessor_child_id`` — its first real consumer; NO synthetic
+        # Request / fake guest account). Routed through the EXISTING C4 routing
+        # path (``_child_hops`` builds the WorkOrder + arms timers — NOT
+        # reimplemented here); the move WO carries the legible
+        # ``kind='relocation_move'`` (decision 2).
+        if stay_id is not None and new_room_id is not None:
+            await _spawn_relocation_move_task(s, esc, actor_id)
+
+
+async def _spawn_relocation_move_task(s: AsyncSession, esc: Escalation,
+                                       actor_id) -> None:
+    """Spawn the front-office guest-move ChildSubRequest + its
+    ``relocation_move`` WorkOrder for a just-executed relocate (spec §7.3 /
+    §4 decisions 5a & 2).
+
+    The new child REUSES the triggering child's ``request_id`` (decision 5a —
+    no synthetic Request, no fake guest account) and records lineage via
+    ``predecessor_child_id`` (its first real consumer). It is created at
+    ``triaged`` so the EXISTING child machine edge ``triaged -> routing`` and
+    the EXISTING C4 routing hop (``_child_hops``) build the WorkOrder + arm
+    its timers — routing is NOT reimplemented here: C1 ``routing.select`` owns
+    the allocation rule and is CALLED over an engine-local candidate read
+    (the established ``_route_dispatch_child`` idiom), then the resolved pure
+    Selection is passed into ``transition(child, 'routing', ...)``. The WO is
+    advanced to ``pushed``/``broadcast`` through the SAME C4 writer path so it
+    appears on the existing servicer queue. Exactly one append-only event per
+    transition (inherited)."""
+    from conduit.shared.domain import routing
+    from conduit.shared.models import (Request, Room, RosterAssignment,
+                                        Section, StaffProfile, StaffSkill)
+    from conduit.shared.models import Roster as _Roster
+    from conduit.shared.models import Stay as _Stay
+
+    # The triggering child → its request_id (decision 5a: reuse the Request).
+    trigger = (await s.execute(
+        sa.select(ChildSubRequest)
+        .where(ChildSubRequest.id == esc.child_id))).scalar_one_or_none()
+    if trigger is None:
+        return
+
+    # The seeded system FO-GUEST-MOVE issue code (B1; origin='system',
+    # dispatch). Idempotent lookup idiom used across the codebase.
+    fo_ic = (await s.execute(
+        sa.select(IssueCode).where(
+            sa.func.lower(IssueCode.code) == "fo-guest-move",
+            IssueCode.status == "active"))).scalars().first()
+    if fo_ic is None:
+        return
+
+    # ONE move child reusing the triggering child's Request; lineage via
+    # ``predecessor_child_id``. Created ``triaged`` so the EXISTING
+    # ``triaged -> routing`` edge + C4 routing hop drive it like a normal
+    # dispatch child. Required NOT-NULL/no-default fields: request_id / text /
+    # outcome (state defaults to intake → set triaged explicitly).
+    move_child = ChildSubRequest(
+        request_id=trigger.request_id,
+        predecessor_child_id=trigger.id,
+        text="Guest move: relocate the guest to the new room.",
+        outcome="auto",
+        issue_code_id=fo_ic.id,
+        fulfilment_mode="dispatch",
+        state="triaged",
+        priority_tier=trigger.priority_tier or "P3")
+    s.add(move_child)
+    await s.flush()
+
+    # Resolve the owning Section via child → Request → Stay → Room → Section
+    # (the relocated stay's NEW room → its section) — the established
+    # ``_route_dispatch_child`` engine-local read (services/engine may read;
+    # routing RULES stay in C1 ``routing.select``).
+    sec_row = (await s.execute(
+        sa.select(Section.id, Section.property_id)
+        .select_from(Request)
+        .join(_Stay, _Stay.id == Request.stay_id)
+        .join(Room, Room.id == _Stay.room_id)
+        .join(Section, Section.id == Room.section_id)
+        .where(Request.id == move_child.request_id))).first()
+    section_id = sec_row[0] if sec_row else None
+    property_id = sec_row[1] if sec_row else None
+
+    model = (routing.RoutingModel.SECTION_POOLED
+             if fo_ic.routing_model == "section_pooled"
+             else routing.RoutingModel.SKILL_MATCHED)
+
+    # Engine-local candidate read (the exact ``_route_dispatch_child`` shape):
+    # rosters → assignments → owner ids → skills → StaffProfile candidates.
+    # Routing rules are NOT re-implemented — C1 ``routing.select`` decides.
+    rosters = {
+        r.id: r for r in (await s.execute(
+            sa.select(_Roster).where(_Roster.property_id == property_id)
+        )).scalars().all()
+    }
+    owner_ids: set = set()
+    assigns: dict = {}
+    if rosters:
+        for a in (await s.execute(
+            sa.select(RosterAssignment)
+            .where(RosterAssignment.roster_id.in_(list(rosters)))
+        )).scalars().all():
+            a.roster = rosters.get(a.roster_id)
+            assigns.setdefault(a.account_id, []).append(a)
+            if (a.assignment == "owner" and a.status == "active"
+                    and a.section_id == section_id):
+                owner_ids.add(a.account_id)
+    skills: dict = {}
+    if assigns:
+        for sk in (await s.execute(
+            sa.select(StaffSkill)
+            .where(StaffSkill.account_id.in_(list(assigns)))
+        )).scalars().all():
+            skills.setdefault(sk.account_id, []).append(sk.skill)
+    candidates = []
+    for prof in (await s.execute(
+        sa.select(StaffProfile)
+        .where(StaffProfile.account_id.in_(list(assigns) or [None]))
+    )).scalars().all():
+        candidates.append(routing.Candidate(
+            account_id=prof.account_id, profile=prof,
+            assignments=assigns.get(prof.account_id, []),
+            skills=tuple(skills.get(prof.account_id, ())),
+            is_section_owner=prof.account_id in owner_ids,
+            in_zone=True))
+
+    now = (await s.execute(sa.select(sa.func.now()))).scalar_one()
+    sel = routing.select(model=model, candidates=candidates, now=now,
+                         section_id=section_id)
+
+    # The EXISTING C4 routing hop (``_child_hops``) creates the WorkOrder +
+    # arms accept_window/fulfilment_sla timers — NOT reimplemented here. The
+    # legible ``kind='relocation_move'`` (decision 2) rides via ctx.
+    await transition(
+        s, move_child, "routing", actor_account_id=actor_id,
+        selection=sel, kind="relocation_move",
+        routing_model=fo_ic.routing_model,
+        priority_tier=move_child.priority_tier)
+    await s.flush()
+
+    # Advance the freshly-created WorkOrder to pushed/broadcast through the
+    # SAME C4 writer path (the established ``_route_dispatch_child`` tail —
+    # assigned ⇒ pushed to the owner; else claim-fallback broadcast). The
+    # dispatch leg's state lives on the WorkOrder; the child stays at routing.
+    move_wo = (await s.execute(
+        sa.select(WorkOrder)
+        .where(WorkOrder.child_id == move_child.id))).scalar_one()
+    nxt = "pushed" if sel.assigned_id is not None else "broadcast"
+    await transition(s, move_wo, nxt, actor_account_id=actor_id)

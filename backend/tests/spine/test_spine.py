@@ -464,6 +464,10 @@ async def test_apply_recommendation_relocate_closes_glitch(db, make_account):
     the linked Glitch closed."""
     h = await _seed_stall_scenario(db, make_account)
     esc = h["esc"]
+    # The system FO-GUEST-MOVE issue code (B1 seeds it in the real catalog;
+    # the spine bench builds a minimal chain so seed it here) — the relocate
+    # resolution additionally spawns the front-office move task (spec §7.3).
+    await _seed_fo_guest_move_code(db)
     # New room to relocate into.
     new_room = Room(section_id=h["section"].id, label="R2")
     db.add(new_room)
@@ -666,4 +670,402 @@ async def test_d1_fix_section_pooled_stall_routes_via_d12(db, make_account):
         .where(RecBroadcast.recommendation_escalation_id == esc.id)
     )).scalar_one()
     assert det is not None
+
+
+# ===========================================================================
+# Task B4 — servicer_raised relocate: compute + persist the room at build,
+# auto-proceed-safe (spec §7.2 / §4 "Auto-proceed safety"; D9/D30).
+# ===========================================================================
+
+
+async def _seed_servicer_raised_relocate(db, make_account, *,
+                                          n_eligible_rooms: int):
+    """Real FK chain Property→Section→Room(s)→Account→Stay→Request→Child for
+    a SERVICER_RAISED escalation, plus the SLAPreset/IssueCode/EscalationLadder
+    prerequisites and a linked open Glitch (the recovery a relocate
+    discharges).
+
+    The guest's Stay sits in ``current_room``. ``n_eligible_rooms`` extra
+    vacant rooms are created in the SAME section (no active Stay → eligible);
+    ``occupied_room`` always holds another active Stay so occupancy exclusion
+    is observable. With ``n_eligible_rooms == 0`` no room is eligible →
+    ``room_selection`` returns ``None`` → ``recommendation.build`` falls back
+    to ``extend_sla`` (the inherited regression).
+
+    ``rooms`` are returned in creation order; ``room_selection`` preserves the
+    caller (engine) order, so the FIRST eligible room is the deterministic
+    pick.
+    """
+    duty = await make_account("supervisor", f"dm-{uuid.uuid4().hex[:8]}")
+    p = Property(name="T")
+    db.add(p)
+    await db.flush()
+    sec = Section(property_id=p.id, label="S")
+    db.add(sec)
+    await db.flush()
+
+    current_room = Room(section_id=sec.id, label="cur")
+    db.add(current_room)
+    await db.flush()
+    occupied_room = Room(section_id=sec.id, label="occ")
+    db.add(occupied_room)
+    await db.flush()
+    eligible_rooms = []
+    for i in range(n_eligible_rooms):
+        rm = Room(section_id=sec.id, label=f"elig-{i}")
+        db.add(rm)
+        await db.flush()
+        eligible_rooms.append(rm)
+
+    sla = SLAPreset(property_id=p.id, tier="P3",
+                    accept_window_seconds=ACCEPT_WINDOW_SECONDS,
+                    fulfilment_sla_seconds=FULFILMENT_SLA_SECONDS,
+                    supervisor_sla_seconds=SUPERVISOR_SLA_SECONDS,
+                    status="active")
+    db.add(sla)
+    await db.flush()
+    ic = IssueCode(code=f"IC-{uuid.uuid4().hex[:6]}", label="L",
+                   department="engineering", fulfilment_mode="dispatch",
+                   routing_model="skill_matched", sla_preset_id=sla.id)
+    db.add(ic)
+    await db.flush()
+    db.add(EscalationLadder(property_id=p.id,
+                            duty_manager_account_id=duty.id,
+                            n_cycle_bound=3, status="active"))
+    await db.flush()
+
+    now = dt.datetime.now(dt.timezone.utc)
+    guest = await make_account("guest", f"g-{uuid.uuid4().hex[:8]}")
+    stay = Stay(guest_account_id=guest.id, room_id=current_room.id,
+                check_in=now, check_out=now + dt.timedelta(days=1),
+                status="active")
+    db.add(stay)
+    await db.flush()
+    # A DIFFERENT guest's active Stay occupies ``occupied_room`` so the
+    # occupancy-exclusion path is exercised (it must NEVER be the pick).
+    other_guest = await make_account("guest", f"og-{uuid.uuid4().hex[:8]}")
+    db.add(Stay(guest_account_id=other_guest.id, room_id=occupied_room.id,
+                check_in=now, check_out=now + dt.timedelta(days=1),
+                status="active"))
+    await db.flush()
+
+    r = Request(guest_account_id=guest.id, stay_id=stay.id, raw_text="x")
+    db.add(r)
+    await db.flush()
+    from conduit.shared.models import ChildSubRequest
+    child = ChildSubRequest(request_id=r.id, text="x", outcome="auto",
+                            state="in_progress", issue_code_id=ic.id,
+                            priority_tier="P3")
+    db.add(child)
+    await db.flush()
+    glitch = Glitch(child_id=child.id, state="open",
+                    opened_from="problem_report")
+    db.add(glitch)
+    await db.flush()
+
+    return {"child": child, "prop": p, "sla": sla, "section": sec,
+            "stay": stay, "current_room": current_room,
+            "occupied_room": occupied_room, "eligible_rooms": eligible_rooms,
+            "glitch": glitch, "duty": duty}
+
+
+async def test_open_escalation_servicer_raised_persists_computed_room(
+        db, make_account):
+    """§7.2: the SERVICER_RAISED branch does an ENGINE-LOCAL rooms/occupancy
+    read and feeds room_selection; the recommendation is ``relocate`` with the
+    DETERMINISTIC pick PERSISTED on ``RecRelocate.target_room_id`` — NOT a
+    ``ctx.get`` passthrough and NOT the occupied/current room."""
+    h = await _seed_servicer_raised_relocate(db, make_account,
+                                             n_eligible_rooms=2)
+
+    # No available_room_id supplied via ctx — proves the spine COMPUTES it.
+    await open_escalation(db, h["child"], EscalationTrigger.SERVICER_RAISED)
+    await db.flush()
+
+    esc = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == h["child"].id)
+    )).scalar_one()
+    assert esc.state == "open" and esc.trigger == "servicer_raised"
+    rec = (await db.execute(
+        sa.select(Recommendation)
+        .where(Recommendation.escalation_id == esc.id))).scalar_one()
+    assert rec.action == "relocate"
+    from conduit.shared.models import RecRelocate
+    det = (await db.execute(
+        sa.select(RecRelocate)
+        .where(RecRelocate.recommendation_escalation_id == esc.id)
+    )).scalar_one()
+    # Deterministic: the FIRST eligible room (creation/engine order), never
+    # the guest's current room nor the occupied room.
+    assert det.target_room_id == h["eligible_rooms"][0].id
+    assert det.target_room_id != h["current_room"].id
+    assert det.target_room_id != h["occupied_room"].id
+
+
+async def test_open_escalation_servicer_raised_no_eligible_room_extends_sla(
+        db, make_account):
+    """Regression preserved: zero eligible rooms ⇒ room_selection → None ⇒
+    recommendation.build falls back to ``extend_sla`` (verbatim)."""
+    h = await _seed_servicer_raised_relocate(db, make_account,
+                                             n_eligible_rooms=0)
+    await open_escalation(db, h["child"], EscalationTrigger.SERVICER_RAISED)
+    await db.flush()
+
+    esc = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == h["child"].id)
+    )).scalar_one()
+    rec = (await db.execute(
+        sa.select(Recommendation)
+        .where(Recommendation.escalation_id == esc.id))).scalar_one()
+    assert rec.action == "extend_sla"
+    from conduit.shared.models import RecExtendSla
+    det = (await db.execute(
+        sa.select(RecExtendSla)
+        .where(RecExtendSla.recommendation_escalation_id == esc.id)
+    )).scalar_one()
+    assert det.extend_seconds == h["sla"].fulfilment_sla_seconds
+
+
+async def test_servicer_raised_relocate_auto_proceed_equals_approve(
+        db, make_account):
+    """THE signature test (§7.2 / §4 "Auto-proceed safety"; D9/D30).
+
+    A SERVICER_RAISED relocate resolved by SILENCE/auto-proceed (the
+    supervisor-SLA-breach ``runner.tick`` path — NO ctx supplied) reaches an
+    end-state IDENTICAL to the ``approve`` path, in EVERY field except
+    ``resolved_by_account_id`` (set for approve, ``None`` for auto-proceed).
+    The auto-proceed path re-applies the PERSISTED
+    ``RecRelocate.target_room_id`` — selection never re-runs.
+    """
+    from conduit.shared.engine import runner
+
+    # The system FO-GUEST-MOVE code (B1 seeds it in the real catalog; the
+    # spine bench builds a minimal chain so seed it here) — relocate
+    # resolution additionally spawns the front-office move task (spec §7.3).
+    await _seed_fo_guest_move_code(db)
+
+    # --- Path A: explicit human approve --------------------------------------
+    ha = await _seed_servicer_raised_relocate(db, make_account,
+                                              n_eligible_rooms=1)
+    actor = await make_account("supervisor", f"sup-{uuid.uuid4().hex[:8]}")
+    await open_escalation(db, ha["child"], EscalationTrigger.SERVICER_RAISED)
+    await db.flush()
+    esc_a = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == ha["child"].id)
+    )).scalar_one()
+    from conduit.shared.models import RecRelocate
+    persisted_a = (await db.execute(
+        sa.select(RecRelocate.target_room_id)
+        .where(RecRelocate.recommendation_escalation_id == esc_a.id)
+    )).scalar_one()
+    assert persisted_a == ha["eligible_rooms"][0].id
+    # Approve supplies NO stay_id/new_room_id ctx — the spine resolves them
+    # from the persisted room + child→Request→Stay (identical to silence).
+    await apply_recommendation(db, esc_a, outcome="approved", actor=actor.id)
+    await db.flush()
+
+    # --- Path B: silent auto-proceed via the real SLA-breach runner.tick -----
+    hb = await _seed_servicer_raised_relocate(db, make_account,
+                                              n_eligible_rooms=1)
+    await open_escalation(db, hb["child"], EscalationTrigger.SERVICER_RAISED)
+    await db.flush()
+    esc_b = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == hb["child"].id)
+    )).scalar_one()
+    persisted_b = (await db.execute(
+        sa.select(RecRelocate.target_room_id)
+        .where(RecRelocate.recommendation_escalation_id == esc_b.id)
+    )).scalar_one()
+    # Arm the supervisor_sla timer in the past → the next runner.tick
+    # auto-proceeds through the REAL spine (no ctx supplied).
+    db_now = (await db.execute(sa.select(sa.func.now()))).scalar_one()
+    from conduit.shared.engine import timers as _t
+    await _t.arm(db, "escalation_id", esc_b.id, _t.TimerType.SUPERVISOR_SLA,
+                 fire_at=db_now - dt.timedelta(seconds=5))
+    await db.flush()
+    fired = await runner.tick(db)
+    assert fired >= 1
+    await db.flush()
+
+    # --- The end-states must be IDENTICAL except resolved_by_account_id ------
+    esc_a = (await db.execute(
+        sa.select(Escalation).where(Escalation.id == esc_a.id))).scalar_one()
+    esc_b = (await db.execute(
+        sa.select(Escalation).where(Escalation.id == esc_b.id))).scalar_one()
+    # The single structural difference: resolver set for approve, None for
+    # the silence path (state differs only by the outcome label).
+    assert esc_a.state == "approved"
+    assert esc_b.state == "auto_proceeded"
+    assert esc_a.resolved_by_account_id == actor.id
+    assert esc_b.resolved_by_account_id is None
+    assert esc_a.resolved_at is not None and esc_b.resolved_at is not None
+    assert esc_a.cycle_count == esc_b.cycle_count  # both +1
+
+    # The REAL relocate_stay re-bind ran on BOTH paths using the PERSISTED
+    # room (selection never re-ran in the auto-proceed path).
+    st_a = (await db.execute(
+        sa.select(Stay).where(Stay.id == ha["stay"].id))).scalar_one()
+    st_b = (await db.execute(
+        sa.select(Stay).where(Stay.id == hb["stay"].id))).scalar_one()
+    assert st_a.room_id == persisted_a == ha["eligible_rooms"][0].id
+    assert st_b.room_id == persisted_b == hb["eligible_rooms"][0].id
+
+    # The linked Glitch closed on BOTH paths (identical recovery effect).
+    gl_a = (await db.execute(
+        sa.select(Glitch).where(Glitch.id == ha["glitch"].id))).scalar_one()
+    gl_b = (await db.execute(
+        sa.select(Glitch).where(Glitch.id == hb["glitch"].id))).scalar_one()
+    assert gl_a.state in ("closed", "auto_closed")
+    assert gl_b.state in ("closed", "auto_closed")
+
+    # Exactly one escalation_resolved event on EACH (append-only symmetry).
+    for e in (esc_a, esc_b):
+        rs = (await db.execute(
+            sa.select(EventEscalationResolved)
+            .where(EventEscalationResolved.escalation_id == e.id)
+        )).scalars().all()
+        assert len(rs) == 1
+
+
+# ===========================================================================
+# Task B5 — spawn the front-office "guest move" task on relocate execution
+# (spec §7.3 / §4 decisions 5a & 2). One ChildSubRequest reusing the
+# triggering child's Request (lineage via predecessor_child_id — its first
+# real consumer) + one WorkOrder kind='relocation_move' routed via the
+# EXISTING C4 routing path, visible on the existing servicer queue.
+# ===========================================================================
+
+
+async def _seed_fo_guest_move_code(db):
+    """Get-or-create the system ``FO-GUEST-MOVE`` IssueCode (the exact spec
+    shape: origin='system', dispatch, section_pooled).
+
+    Idempotent: migration 0007 seeds it in the real catalog and the spine
+    bench restores that canonical post-``upgrade head`` row after its
+    one-shot leakage-reset truncate, so the row is normally already present.
+    Re-inserting would violate the ``lower(code)`` unique index — so reuse
+    the existing row when present, else create it (covers any ordering)."""
+    existing = (await db.execute(sa.select(IssueCode).where(
+        sa.func.lower(IssueCode.code) == "fo-guest-move"))).scalars().first()
+    if existing is not None:
+        return existing
+    ic = IssueCode(code="FO-GUEST-MOVE", label="Guest move",
+                   department="front_office", fulfilment_mode="dispatch",
+                   routing_model="section_pooled", intent_kind="service",
+                   is_reservation_mutation=False, origin="system",
+                   status="active")
+    db.add(ic)
+    await db.flush()
+    return ic
+
+
+async def test_apply_recommendation_relocate_spawns_move_task(
+        db, make_account):
+    """spec §7.3 / decisions 5a & 2: a resolved servicer-raised relocate, after
+    the real ``relocate_stay`` re-bind + linked-Glitch close, spawns EXACTLY
+    ONE ``ChildSubRequest`` reusing the triggering child's ``request_id`` with
+    ``predecessor_child_id`` = the triggering child, plus EXACTLY ONE
+    ``WorkOrder kind='relocation_move'`` driven through the EXISTING C4 routing
+    path, visible on the existing servicer-tasks read path, with exactly one
+    append-only event per transition for the spawn."""
+    from conduit.servicer.dal import tasks as tdal
+    from conduit.shared.models import (ChildSubRequest, EventChildRouted,
+                                       EventWorkOrderCreated, RecRelocate,
+                                       Roster, RosterAssignment, StaffProfile)
+
+    h = await _seed_servicer_raised_relocate(db, make_account,
+                                             n_eligible_rooms=1)
+    fo_ic = await _seed_fo_guest_move_code(db)
+    actor = await make_account("supervisor", f"sup-{uuid.uuid4().hex[:8]}")
+
+    # A front-office servicer who is the positional OWNER of the section the
+    # relocated stay re-binds into → section_pooled routing assigns the move
+    # WO to them → it surfaces as a PUSHED task on the existing servicer queue.
+    fo = await make_account("servicer", f"fo-{uuid.uuid4().hex[:8]}")
+    db.add(StaffProfile(account_id=fo.id, staff_class="runner",
+                        presence="working", status="active"))
+    now = dt.datetime.now(dt.timezone.utc)
+    roster = Roster(property_id=h["prop"].id,
+                    shift_start=now - dt.timedelta(hours=1),
+                    shift_end=now + dt.timedelta(hours=8), status="active")
+    db.add(roster)
+    await db.flush()
+    db.add(RosterAssignment(roster_id=roster.id, account_id=fo.id,
+                            section_id=h["section"].id,
+                            assignment="owner", status="active"))
+    await db.flush()
+
+    await open_escalation(db, h["child"], EscalationTrigger.SERVICER_RAISED)
+    await db.flush()
+    esc = (await db.execute(
+        sa.select(Escalation).where(Escalation.child_id == h["child"].id)
+    )).scalar_one()
+    persisted = (await db.execute(
+        sa.select(RecRelocate.target_room_id)
+        .where(RecRelocate.recommendation_escalation_id == esc.id)
+    )).scalar_one()
+    assert persisted == h["eligible_rooms"][0].id
+
+    trigger_child_id = h["child"].id
+    trigger_request_id = h["child"].request_id
+
+    await apply_recommendation(db, esc, outcome="approved", actor=actor.id)
+    await db.flush()
+
+    # The real relocate_stay re-bind + linked Glitch close still hold.
+    st = (await db.execute(
+        sa.select(Stay).where(Stay.id == h["stay"].id))).scalar_one()
+    assert st.room_id == persisted
+    gl = (await db.execute(
+        sa.select(Glitch).where(Glitch.id == h["glitch"].id))).scalar_one()
+    assert gl.state in ("closed", "auto_closed")
+
+    # EXACTLY ONE move child: same request_id, predecessor = the trigger child,
+    # FO-GUEST-MOVE issue code, dispatch.
+    moves = (await db.execute(
+        sa.select(ChildSubRequest).where(
+            ChildSubRequest.predecessor_child_id == trigger_child_id)
+    )).scalars().all()
+    assert len(moves) == 1
+    mv = moves[0]
+    assert mv.request_id == trigger_request_id
+    assert mv.id != trigger_child_id
+    assert mv.issue_code_id == fo_ic.id
+    assert mv.fulfilment_mode == "dispatch"
+
+    # EXACTLY ONE WorkOrder kind='relocation_move' linked to the move child.
+    wos = (await db.execute(
+        sa.select(WorkOrder).where(WorkOrder.child_id == mv.id)
+    )).scalars().all()
+    assert len(wos) == 1
+    assert wos[0].kind == "relocation_move"
+
+    # Visible on the existing servicer-tasks read path (the front-office
+    # owner's queue) — just another task card.
+    cards = await tdal.list_tasks(db, fo.id)
+    assert any(str(c["work_order_id"]) == str(wos[0].id) for c in cards)
+
+    # Exactly one append-only event per transition for the spawn: the move
+    # child's single child_routed + the move WO's single work_order_created.
+    n_routed = (await db.execute(
+        sa.select(sa.func.count()).select_from(EventChildRouted)
+        .where(EventChildRouted.child_id == mv.id))).scalar_one()
+    assert n_routed == 1
+    n_wo_created = (await db.execute(
+        sa.select(sa.func.count()).select_from(EventWorkOrderCreated)
+        .where(EventWorkOrderCreated.work_order_id == wos[0].id)
+    )).scalar_one()
+    assert n_wo_created == 1
+
+    # Idempotency / blast-radius: exactly ONE move child + WO total.
+    total_moves = (await db.execute(
+        sa.select(sa.func.count()).select_from(ChildSubRequest)
+        .where(ChildSubRequest.predecessor_child_id == trigger_child_id)
+    )).scalar_one()
+    assert total_moves == 1
+    total_move_wos = (await db.execute(
+        sa.select(sa.func.count()).select_from(WorkOrder)
+        .where(WorkOrder.kind == "relocation_move")
+    )).scalar_one()
+    assert total_move_wos == 1
 

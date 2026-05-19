@@ -22,8 +22,13 @@ export type Child = {
   answer?: string | null
   closure_prompt?: boolean | null
   state?: string | null
+  // D36 split-echo: server-decided per-child label + triage outcome
+  // (auto|clarify|flag|no_dispatch). Additive output only.
+  issue_label?: string | null
+  outcome?: string
 }
-export type Req = { request_id: string; children: Child[] }
+// D36 split-echo: server-decided (≥2 children ⇒ echo, 1 ⇒ instant-ack).
+export type Req = { request_id: string; children: Child[]; split: boolean }
 
 // E1 backend shape (conduit/guest/schemas/requests.py — DispatchCardOut). The
 // curated guest-facing card: NAME never id (D17), server-provided revised_eta
@@ -35,6 +40,10 @@ export type DispatchCard = {
   assigned_servicer_name?: string | null
   revised_eta?: string | null
   glitch: boolean
+  // Spec §8 / §4 — additive output (DispatchCardOut.relocated_to). Set on a
+  // live sibling card once the stay re-binds to the new room (the towel
+  // follows the guest to 511). Calm reassurance, never an alert.
+  relocated_to?: string | null
 }
 
 // Merged array-key idiom (use-guest.ts / use-servicer.ts). The dispatch cards

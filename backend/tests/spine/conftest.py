@@ -58,7 +58,17 @@ async def _isolate_from_nonspine_leakage() -> None:
     spine ``db`` is built (after every non-spine package has run, before
     the first savepoint-isolated session), preserving the schema (the
     alembic head row is kept). It is a one-shot — never between spine
-    tests, which are already isolated and intentionally share nothing."""
+    tests, which are already isolated and intentionally share nothing.
+
+    The TRUNCATE drops non-spine TRANSACTIONAL leakage but would also wipe
+    rows the MIGRATIONS seed (``_create_test_db`` builds the DB via
+    ``alembic upgrade head`` only — no app seed). Migration ``0007`` seeds
+    the system code ``FO-GUEST-MOVE``; Slice-8 spine code
+    (``_spawn_relocation_move_task``) looks it up. So after the truncate we
+    RESTORE exactly the post-``upgrade head`` canonical reference state by
+    re-running ``0007``'s idempotent seed — keeping the spine package's
+    starting state identical to a freshly-migrated DB (not a stripped one),
+    without adding the broader app catalog (`seed.ensure_issue_codes`)."""
     global _NONSPINE_LEAKAGE_RESET
     if not _NONSPINE_LEAKAGE_RESET:
         engine = create_async_engine(_test_url())
@@ -71,6 +81,18 @@ async def _isolate_from_nonspine_leakage() -> None:
                     "AND tablename <> 'alembic_version' LOOP "
                     "EXECUTE 'TRUNCATE TABLE ' || quote_ident(r.tablename) "
                     "|| ' RESTART IDENTITY CASCADE'; END LOOP; END $$;"))
+                # Restore the migration-seeded canonical reference row(s)
+                # (post-`alembic upgrade head` state). Idempotent, mirrors
+                # migration 0007's FO-GUEST-MOVE seed.
+                await c.execute(text(
+                    "INSERT INTO issue_code (id, code, label, department, "
+                    "fulfilment_mode, routing_model, intent_kind, "
+                    "is_reservation_mutation, status, origin, created_at, "
+                    "updated_at) SELECT gen_random_uuid(), 'FO-GUEST-MOVE', "
+                    "'Guest move', 'front_office', 'dispatch', "
+                    "'section_pooled', 'service', false, 'active', "
+                    "'system', now(), now() WHERE NOT EXISTS (SELECT 1 FROM "
+                    "issue_code WHERE lower(code) = 'fo-guest-move')"))
         finally:
             await engine.dispose()
         _NONSPINE_LEAKAGE_RESET = True
@@ -241,3 +263,22 @@ def _leak_sentinel():
     actual assertion lives in
     test_structural_guards.py::test_leak_sentinel (a fresh-session check)."""
     yield
+
+
+@pytest.fixture()
+def fake_decompose(monkeypatch):
+    """Deterministic decompose double. Default: identity (1 message → 1 text)
+    so every single-need fixture stays byte-identical. Tests that want a
+    multi-need split set state["texts"] to a list.
+
+    Async, mirroring ``fake_llm``'s async wrappers: the real
+    ``triage.decompose`` is ``async`` (D35), so the double must be awaitable
+    or ``intake``'s ``await triage.decompose(...)`` would raise."""
+    from conduit.shared.domain import triage as _t
+    state = {"texts": None}
+
+    async def _d(raw_text: str):
+        return state["texts"] if state["texts"] is not None else [raw_text]
+
+    monkeypatch.setattr(_t, "decompose", _d)
+    return state

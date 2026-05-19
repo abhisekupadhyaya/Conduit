@@ -33,6 +33,7 @@ from conduit.shared.models import (
     Glitch,
     IssueCode,
     Property,
+    Request,
     Room,
     Roster,
     RosterAssignment,
@@ -113,7 +114,14 @@ async def _seed_dispatch_world(db, make_account):
 
 
 async def test_guest_dispatch_spine(client, make_account, login, db,
-                                    fake_llm):
+                                    fake_llm, fake_decompose):
+    # Slice 7 makes intake multi-intent. This is a SINGLE-need dispatch
+    # script (``scalar_one()`` on the one child / its one WorkOrder). The
+    # ``fake_decompose`` double DEFAULTS to identity (1 message → 1 text —
+    # ``state["texts"]`` unset), so the single utterance fans to exactly
+    # one child and every ``scalar_one()`` stays unambiguous. No
+    # behavioural assertion changes — only the single-intent assumption is
+    # made explicit/deterministic.
     guest, srv, sec, ic = await _seed_dispatch_world(db, make_account)
 
     async def fclassify_dispatch(t, cat):
@@ -173,10 +181,15 @@ async def test_guest_dispatch_spine(client, make_account, login, db,
     assert card["assigned_servicer_name"] == "Sam Servicer"  # D17 NAME
     assert card["revised_eta"] is None
     assert card["glitch"] is False
-    # No internal fields leak (extra="forbid" + curated keys only).
+    # No internal fields leak (extra="forbid" + curated keys only). B6 adds
+    # the additive ``relocated_to`` output (Spec §7.4/§9.3/D22 — None here
+    # since this stay was never relocated); the set stays EXACT (==), only
+    # the new additive key is reflected (additive reconciliation, NOT a
+    # weakening — still a curated allow-list).
     assert set(card.keys()) == {
         "child_id", "state", "issue_label", "assigned_servicer_name",
-        "revised_eta", "glitch"}
+        "revised_eta", "glitch", "relocated_to"}
+    assert card["relocated_to"] is None
 
     # Glitch badge reflects an open Glitch for the child.
     db.add(Glitch(child_id=child.id, state="open",
@@ -283,3 +296,120 @@ async def test_guest_dispatch_spine(client, make_account, login, db,
     assert (await db.execute(sa.select(Event).where(
         Event.id == cev[0].event_id,
         Event.type == "child_cancelled"))).scalar_one()
+
+
+# ==========================================================================
+# Task B6 — ``DispatchCardOut.relocated_to`` (Spec §7.4 / §9.3 / D22). A live
+# sibling whose stay re-bound is proactively told the new room. APPEND-only:
+# the E1 test above is preserved verbatim. The re-bind is driven by the REAL
+# ``spine.apply_recommendation`` (the single executor → real ``relocate_stay``
+# → the existing ``guest_relocated`` event) — NOT reimplemented here. The
+# signal is spec-faithful and deterministic: a ``guest_relocated`` event
+# exists for this stay ⇒ ``relocated_to`` = the stay's CURRENT room label.
+# ==========================================================================
+async def test_guest_dispatch_relocated_to(client, make_account, login, db,
+                                            fake_llm, fake_decompose):
+    from conduit.shared.engine import spine
+    from conduit.shared.models import Escalation, EscalationLadder
+
+    duty = await make_account("supervisor", f"dm-{uuid.uuid4().hex[:8]}")
+    p = Property(name="T")
+    db.add(p)
+    await db.flush()
+    sec = Section(property_id=p.id, label="S")
+    db.add(sec)
+    await db.flush()
+    room = Room(section_id=sec.id, label="R")
+    new_room = Room(section_id=sec.id, label="R-NEW")
+    db.add_all([room, new_room])
+    await db.flush()
+    sla = SLAPreset(property_id=p.id, tier="P3", accept_window_seconds=120,
+                    fulfilment_sla_seconds=1800, supervisor_sla_seconds=900,
+                    status="active")
+    db.add(sla)
+    await db.flush()
+    ic = IssueCode(code=f"IC-{uuid.uuid4().hex[:6]}", label="Towels",
+                   department="housekeeping", fulfilment_mode="dispatch",
+                   routing_model="skill_matched", sla_preset_id=sla.id)
+    db.add(ic)
+    await db.flush()
+    db.add(EscalationLadder(property_id=p.id,
+                            duty_manager_account_id=duty.id,
+                            n_cycle_bound=3, status="active"))
+    await db.flush()
+
+    sup = await make_account("supervisor", f"sup-{uuid.uuid4().hex[:8]}", _PW)
+    srv = await make_account("servicer", f"sv-{uuid.uuid4().hex[:8]}", _PW)
+    guest = await make_account("guest", f"g-{uuid.uuid4().hex[:8]}", _PW)
+    now = dt.datetime.now(dt.timezone.utc)
+    stay = Stay(guest_account_id=guest.id, room_id=room.id, check_in=now,
+                check_out=now + dt.timedelta(days=1), status="active")
+    db.add(stay)
+    await db.flush()
+    req = Request(guest_account_id=guest.id, stay_id=stay.id, raw_text="x")
+    db.add(req)
+    await db.flush()
+
+    # The AC child the engineer "can't fix" → a servicer_raised relocate.
+    ac_child = ChildSubRequest(request_id=req.id, text="ac", outcome="auto",
+                               fulfilment_mode="dispatch",
+                               issue_code_id=ic.id, state="in_progress",
+                               priority_tier="P3")
+    # A still-LIVE sibling on the SAME stay (the towel) — it follows.
+    sib_child = ChildSubRequest(request_id=req.id, text="towel",
+                                outcome="auto", fulfilment_mode="dispatch",
+                                issue_code_id=ic.id, state="routing",
+                                priority_tier="P3")
+    db.add_all([ac_child, sib_child])
+    await db.flush()
+    db.add(WorkOrder(child_id=ac_child.id, kind="dispatch",
+                     routing_model="skill_matched", priority_tier="P3",
+                     assigned_servicer_id=srv.id, accountable_owner_id=srv.id,
+                     section_id=sec.id, state="created"))
+    db.add(WorkOrder(child_id=sib_child.id, kind="dispatch",
+                     routing_model="skill_matched", priority_tier="P3",
+                     assigned_servicer_id=srv.id, accountable_owner_id=srv.id,
+                     section_id=sec.id, state="pushed"))
+    await db.flush()
+
+    # ---- Before any relocation: the sibling card's relocated_to is None --
+    await login(guest.username, _PW)
+    pre = await client.get("/api/guest/requests")
+    assert pre.status_code == 200, pre.text
+    pre_card = next(c for c in pre.json()
+                    if c["child_id"] == str(sib_child.id))
+    assert pre_card["relocated_to"] is None
+    # Curated key set incl. the new additive output (extra="forbid").
+    assert set(pre_card.keys()) == {
+        "child_id", "state", "issue_label", "assigned_servicer_name",
+        "revised_eta", "glitch", "relocated_to"}
+
+    # ---- Supervisor approves the relocate via the REAL decisions API ----
+    esc = await spine.open_escalation(
+        db, ac_child, spine.EscalationTrigger.SERVICER_RAISED,
+        actor_account_id=srv.id, reason="can't fix")
+    await db.flush()
+    await db.commit()
+    assert (await db.get(Escalation, esc.id)).trigger == "servicer_raised"
+
+    await login(sup.username, _PW)
+    rok = await client.post(
+        f"/api/supervisor/decisions/{esc.id}/resolve",
+        json={"action": "approve"})
+    assert rok.status_code == 200, rok.text
+    await db.commit()
+    # The real relocate_stay re-bound the stay (selection picked the only
+    # available room — R-NEW; R is the current/occupied one).
+    stay_row = await db.get(Stay, stay.id)
+    assert str(stay_row.room_id) == str(new_room.id)
+
+    # ---- The live sibling card now carries relocated_to = the new label -
+    await login(guest.username, _PW)
+    post = await client.get("/api/guest/requests")
+    assert post.status_code == 200, post.text
+    post_card = next(c for c in post.json()
+                     if c["child_id"] == str(sib_child.id))
+    assert post_card["relocated_to"] == new_room.label
+    assert set(post_card.keys()) == {
+        "child_id", "state", "issue_label", "assigned_servicer_name",
+        "revised_eta", "glitch", "relocated_to"}

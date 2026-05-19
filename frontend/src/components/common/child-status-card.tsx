@@ -81,7 +81,10 @@ function DispatchClosure({ card }: { card: DispatchCard }) {
         <span className="text-muted-foreground text-xs">Is this resolved?</span>
         <Button
           size="xs"
-          variant="ghost"
+          // decision 6a — the guest twin of the single --accent-action job
+          // (its supervisor twin is decision-queue Approve in
+          // relocation-decision.tsx). The lone deliberate emphasis.
+          className="bg-accent-action text-primary-foreground hover:bg-accent-action/90"
           disabled={busy}
           onClick={() => confirm.mutate(card.child_id)}
         >
@@ -145,6 +148,13 @@ function DispatchStatusCard({ card }: { card: DispatchCard }) {
         <p className="text-muted-foreground mt-1 flex items-center gap-1 text-xs">
           <span>Updated ETA</span>
           <Countdown deadline={card.revised_eta} />
+        </p>
+      )}
+      {card.relocated_to && (
+        // Spec §10 — the live sibling followed the guest to the new room.
+        // A calm, reassuring line on the MUTED token — NOT an alert.
+        <p className="text-muted-foreground mt-1 text-xs">
+          Moved with you to {card.relocated_to}
         </p>
       )}
       <DispatchClosure card={card} />

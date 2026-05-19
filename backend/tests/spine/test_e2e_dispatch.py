@@ -47,7 +47,6 @@ import sqlalchemy as sa
 
 from conduit.shared.domain import lifecycle
 from conduit.shared.engine import runner
-from conduit.shared.engine import spine
 from conduit.shared.engine import timers as _t
 from conduit.shared.models import (
     ChildSubRequest,
@@ -55,6 +54,7 @@ from conduit.shared.models import (
     Escalation,
     Event,
     EventChildClosed,
+    EventChildRouted,
     EventCrossDeptNotified,
     EventEscalationOpened,
     EventEscalationResolved,
@@ -62,10 +62,12 @@ from conduit.shared.models import (
     EventGlitchOpened,
     EventWorkOrderAccepted,
     EventWorkOrderCompleted,
+    EventWorkOrderCreated,
     Glitch,
     Property,
     Recommendation,
     RecBroadcast,
+    RecRelocate,
     Room,
     Roster,
     RosterAssignment,
@@ -116,8 +118,26 @@ async def _seed_chain(db, make_account, *, n_cycle_bound):
     room = Room(section_id=sec.id, label="R")
     db.add(room)
     await db.flush()
-    spare_room = Room(section_id=sec.id, label="R2")  # leg (c) relocate target
+    # The leg-(c) relocate targets live in a SEPARATE front-office section
+    # whose OWNER is a front-office servicer (spec §9.1 "Servicer B
+    # (runner/front-office)" / §7.3): the spawned ``relocation_move`` WO
+    # routes section_pooled into the relocated room's section, so the move
+    # task surfaces on the FRONT-OFFICE owner's queue and is acceptable via
+    # the real servicer-tasks accept path. ``spare_room`` is the
+    # deterministic recommended pick (room_selection orders by label then id);
+    # ``spare_room2`` is an eligible NON-recommended room for the edit
+    # variant. Disjoint labels make the ordering unambiguous.
+    fo_sec = Section(property_id=p.id, label="FO")
+    db.add(fo_sec)
+    await db.flush()
+    spare_room = Room(section_id=fo_sec.id, label="FR1")   # recommended pick
     db.add(spare_room)
+    await db.flush()
+    spare_room2 = Room(section_id=fo_sec.id, label="FR2")  # edit-variant pick
+    db.add(spare_room2)
+    await db.flush()
+    spare_room3 = Room(section_id=fo_sec.id, label="FR3")  # auto-proceed leg
+    db.add(spare_room3)
     await db.flush()
 
     now = dt.datetime.now(dt.timezone.utc)
@@ -148,7 +168,43 @@ async def _seed_chain(db, make_account, *, n_cycle_bound):
                             section_id=sec.id, assignment="member",
                             status="active"))
     await db.flush()
+    # The FRONT-OFFICE servicer who OWNS ``fo_sec`` — section_pooled routing
+    # of the spawned ``relocation_move`` WO assigns it to this owner, so the
+    # move task is a PUSHED card on this servicer's existing queue and is
+    # acceptable through the real servicer-tasks accept path (spec §9.1).
+    fo = await make_account("servicer", f"fo-{uuid.uuid4().hex[:8]}", _PW,
+                            display_name="Felix Frontdesk")
+    db.add(StaffProfile(account_id=fo.id, staff_class="runner",
+                        presence="working", status="active"))
+    await db.flush()
+    db.add(RosterAssignment(roster_id=roster.id, account_id=fo.id,
+                            section_id=fo_sec.id, assignment="owner",
+                            status="active"))
+    await db.flush()
+    # The system FO-GUEST-MOVE issue code (B1 seeds it in the real catalog
+    # via migration 0007; the spine-package leakage-reset fixture TRUNCATEs
+    # all data once before the first spine session, clearing that seed row —
+    # so this bench seeds it itself, exactly the established idiom the
+    # ``_seed_chain`` IssueCode + ``test_spine._seed_fo_guest_move_code`` use:
+    # the journey only needs the routed code to exist; the spec shape is
+    # origin='system', front_office, dispatch, section_pooled). Idempotent
+    # insert-missing so any surviving migration row is reused (no UNIQUE clash).
+    from conduit.shared.models import IssueCode as _IssueCode
+    fo_ic = (await db.execute(sa.select(_IssueCode).where(
+        sa.func.lower(_IssueCode.code) == "fo-guest-move"))).scalars().first()
+    if fo_ic is None:
+        fo_ic = _IssueCode(code="FO-GUEST-MOVE", label="Guest move",
+                           department="front_office",
+                           fulfilment_mode="dispatch",
+                           routing_model="section_pooled",
+                           intent_kind="service",
+                           is_reservation_mutation=False, origin="system",
+                           status="active")
+        db.add(fo_ic)
+        await db.flush()
     return {"prop": p, "sec": sec, "room": room, "spare_room": spare_room,
+            "spare_room2": spare_room2, "spare_room3": spare_room3,
+            "fo_sec": fo_sec, "fo": fo, "fo_ic": fo_ic,
             "duty": duty, "owner": owner, "target": target}
 
 
@@ -475,100 +531,227 @@ async def test_e2e_dispatch_journey(client, make_account, login, db,
     assert e_auto.resolved_by_account_id is None
 
     # =====================================================================
-    # LEG (c) GLITCH: problem_report P1 → Glitch opens → engineer raises
-    # ("can't fix") → relocate recommendation → supervisor resolve →
-    # relocate_stay re-bind → Glitch + WO closed → CrossDeptNotification.
-    # Driven via the REAL servicer raise + supervisor resolve APIs.
+    # LEG (c) GLITCH+RELOCATE (B4/B5/B6 extension): problem_report P1 →
+    # Glitch opens → engineer raises ("can't fix") → the spine COMPUTES +
+    # PERSISTS the relocate target room (B4 §7.2; LLM never in the path) →
+    # supervisor resolves through the REAL ``POST /supervisor/decisions/
+    # {id}/resolve`` (B6 §8) in THREE equivalent escalations:
+    #   (i)   approve   → re-bind to the COMPUTED+PERSISTED room (B4),
+    #   (ii)  edit       → re-bind to a CHOSEN non-recommended room (B6),
+    #   (iii) silence    → ``_arm_past`` supervisor_sla + ``runner.tick``
+    #                      auto-proceeds on the PERSISTED room (B4 §7.2).
+    # Each: the REAL ``relocate_stay`` re-bind ran, the linked Glitch
+    # closed, EXACTLY ONE ``escalation_resolved`` per escalation, the
+    # ``relocation_move`` WO spawned (B5 §7.3 — predecessor lineage + same
+    # request_id) and is ACCEPTABLE by the front-office servicer through
+    # the REAL servicer-tasks accept path; auto-proceed ≡ approve except
+    # ``resolved_by_account_id`` (spec §7.4). Driven via the REAL servicer
+    # raise + supervisor resolve APIs + the REAL engine.
     # =====================================================================
-    guest_c, stay_c = await _guest_with_stay(db, make_account, h["room"])
-    await db.commit()
-    await login(guest_c.username, _PW)
-    child_c, wo_c = await _submit_dispatch(
-        client, db, fake_llm, guest_c, issue_code=ic.code,
-        is_problem_report=True)
-    await db.commit()
-    assert child_c.is_problem_report is True
-
-    # Engineer takes the job (real servicer API) so it is mid-lifecycle.
-    await login(h["owner"].username, _PW)
-    assert (await client.post(
-        f"/api/servicer/tasks/{wo_c.id}/accept")).status_code == 200
-    assert (await client.post(
-        f"/api/servicer/tasks/{wo_c.id}/start")).status_code == 200
-    await db.commit()
-
-    # The P1 problem_report's Glitch (recovery linkage). The new-entity
-    # ``glitch_opened`` is appended via the SAME merged single writer (the
-    # established idiom — open is the Glitch start state, no *->open edge).
-    gl = Glitch(child_id=child_c.id, opened_from="problem_report",
-                state="open")
-    db.add(gl)
-    await db.flush()
     from conduit.shared.events import writer as _w
-    await _w.emit_glitch_opened(db, gl.id)
-    await db.flush()
-    await db.commit()
-    assert await _count(db, EventGlitchOpened, "glitch_id", gl.id) == 1
 
-    # Engineer raises "can't fix" via the REAL servicer raise API → the
-    # spine opens a servicer_raised escalation + its AI recommendation.
-    await login(h["owner"].username, _PW)
-    rr = await client.post(f"/api/servicer/tasks/{wo_c.id}/raise",
-                           json={"reason": "structural damage, can't fix"})
-    assert rr.status_code == 201, rr.text
-    await db.commit()
-    esc_c = (await db.execute(sa.select(Escalation).where(
-        Escalation.child_id == child_c.id,
-        Escalation.trigger == "servicer_raised"))).scalar_one()
-    assert esc_c.state == "open"
-    assert await _count(db, EventEscalationOpened, "escalation_id",
-                        esc_c.id) == 1
+    async def _raise_relocate(label):
+        """One equivalent servicer-raised relocate escalation built ENTIRELY
+        through the REAL intake → servicer accept/start → Glitch → servicer
+        raise path. Returns (guest, stay, child, wo, glitch, esc,
+        persisted_target_room_id) — the spine-computed+persisted target room
+        is read off ``RecRelocate.target_room_id`` (selection never re-run)."""
+        g, st = await _guest_with_stay(db, make_account, h["room"])
+        await db.commit()
+        await login(g.username, _PW)
+        ch, w = await _submit_dispatch(
+            client, db, fake_llm, g, issue_code=ic.code,
+            is_problem_report=True)
+        await db.commit()
+        assert ch.is_problem_report is True
+        await login(h["owner"].username, _PW)
+        assert (await client.post(
+            f"/api/servicer/tasks/{w.id}/accept")).status_code == 200
+        assert (await client.post(
+            f"/api/servicer/tasks/{w.id}/start")).status_code == 200
+        await db.commit()
+        # The P1 problem_report's Glitch (recovery linkage) — opened via the
+        # SAME merged single writer (open is the start state; no *->open
+        # edge — the established idiom).
+        g_l = Glitch(child_id=ch.id, opened_from="problem_report",
+                     state="open")
+        db.add(g_l)
+        await db.flush()
+        await _w.emit_glitch_opened(db, g_l.id)
+        await db.flush()
+        await db.commit()
+        assert await _count(db, EventGlitchOpened, "glitch_id", g_l.id) == 1
+        # Engineer raises "can't fix" via the REAL servicer raise API → the
+        # spine opens a servicer_raised escalation, COMPUTES the relocate
+        # target via the engine-local rooms/occupancy read (B4 §7.2) and
+        # PERSISTS it on RecRelocate.target_room_id.
+        await login(h["owner"].username, _PW)
+        rrz = await client.post(
+            f"/api/servicer/tasks/{w.id}/raise",
+            json={"reason": f"structural damage {label}, can't fix"})
+        assert rrz.status_code == 201, rrz.text
+        await db.commit()
+        e = (await db.execute(sa.select(Escalation).where(
+            Escalation.child_id == ch.id,
+            Escalation.trigger == "servicer_raised"))).scalar_one()
+        assert e.state == "open"
+        assert await _count(db, EventEscalationOpened, "escalation_id",
+                            e.id) == 1
+        # B4 §7.2: the relocate target room is COMPUTED + PERSISTED at
+        # recommendation-build (the deterministic available pick — LLM never
+        # in the auto-proceed path). Selection never re-runs.
+        rr_row = (await db.execute(sa.select(RecRelocate).where(
+            RecRelocate.recommendation_escalation_id == e.id)
+        )).scalar_one()
+        assert rr_row.target_room_id is not None
+        return g, st, ch, w, g_l, e, rr_row.target_room_id
 
-    # Supervisor resolves with a RELOCATE override (outcome ``overridden``)
-    # through THE single executor ``spine.apply_recommendation`` — the EXACT
-    # engine seam the resolve API calls. The relocate stay-target inputs
-    # (``stay_id`` / ``new_room_id``) reach the C4 escalation→relocate hop via
-    # ``apply_recommendation``'s forwarded ``**ctx`` (the proven real-engine
-    # pattern of ``test_spine.test_apply_recommendation_relocate_closes_glitch``
-    # — the genuine relocate seam; the supervisor resolve API does NOT yet
-    # surface the stay-target wiring — that is the documented Phase-E boundary
-    # in ``lifecycle._escalation_hops``, NOT a defect). The C4 hop runs the
-    # REAL ``relocate_stay`` re-bind and closes the linked Glitch through the
-    # same orchestrator. ``actor`` is the supervisor (the human resolver).
+    async def _assert_move_task_spawned_and_acceptable(trigger_child,
+                                                       trigger_request_id):
+        """B5 §7.3: EXACTLY ONE ``relocation_move`` move child (reusing the
+        triggering child's request_id, ``predecessor_child_id`` = the
+        triggering child) + EXACTLY ONE ``WorkOrder kind='relocation_move'``,
+        ACCEPTABLE by the front-office servicer through the REAL
+        servicer-tasks accept path (the move WO routed section_pooled into
+        the relocated room's front-office section)."""
+        moves = (await db.execute(sa.select(ChildSubRequest).where(
+            ChildSubRequest.predecessor_child_id == trigger_child.id)
+        )).scalars().all()
+        assert len(moves) == 1, "exactly one relocation_move child"
+        mv = moves[0]
+        assert mv.request_id == trigger_request_id   # same Request (5a)
+        assert mv.id != trigger_child.id
+        assert mv.fulfilment_mode == "dispatch"
+        assert await _count(db, EventChildRouted, "child_id", mv.id) == 1
+        mv_wos = (await db.execute(sa.select(WorkOrder).where(
+            WorkOrder.child_id == mv.id))).scalars().all()
+        assert len(mv_wos) == 1
+        mv_wo = mv_wos[0]
+        assert mv_wo.kind == "relocation_move"
+        assert await _count(db, EventWorkOrderCreated, "work_order_id",
+                            mv_wo.id) == 1
+        # Visible on the front-office owner's queue + acceptable via the
+        # REAL servicer-tasks accept path (just another task card).
+        await login(h["fo"].username, _PW)
+        tl = await client.get("/api/servicer/tasks")
+        assert tl.status_code == 200, tl.text
+        assert str(mv_wo.id) in {str(t["work_order_id"]) for t in tl.json()}
+        racc = await client.post(f"/api/servicer/tasks/{mv_wo.id}/accept")
+        assert racc.status_code == 200, racc.text
+        await db.commit()
+        assert (await db.get(WorkOrder, mv_wo.id)).state == "accepted"
+        return mv, mv_wo
+
+    # ---- (i) COMPUTED + APPROVE ----------------------------------------
+    guest_c, stay_c, child_c, wo_c, gl, esc_c, persisted_c = \
+        await _raise_relocate("i")
+    trigger_req_c = (await db.get(ChildSubRequest, child_c.id)).request_id
     await login(sup.username, _PW)
+    # The B6 decision card carries the spine-computed projection.
+    dqc = await client.get("/api/supervisor/decisions")
+    assert dqc.status_code == 200, dqc.text
+    card_c = {d["escalation_id"]: d for d in dqc.json()}[str(esc_c.id)]
+    assert card_c["recommendation"]["action"] == "relocate"
+    det_c = card_c["recommendation"]["detail"]
+    # {id,label} shape (Spec §9.1/§10/§12 — card shows room NUMBERS).
+    assert det_c["current_room"]["id"] == str(h["room"].id)
+    assert det_c["recommended_room"]["id"] == str(persisted_c)
+    assert str(h["room"].id) not in {
+        r["id"] for r in det_c["eligible_rooms"]}
     n_gl_cl0 = await _count(db, EventGlitchClosed, "glitch_id", gl.id)
-    await spine.apply_recommendation(
-        db, esc_c, outcome="overridden", action="relocate",
-        payload={"target_room_id": str(h["spare_room"].id)},
-        actor=sup.id,
-        stay_id=stay_c.id, new_room_id=h["spare_room"].id)
+    rap_c = await client.post(
+        f"/api/supervisor/decisions/{esc_c.id}/resolve",
+        json={"action": "approve"})
+    assert rap_c.status_code == 200, rap_c.text
     await db.commit()
-
-    # relocate_stay re-bind effect: the guest's stay room changed (the REAL
-    # merged stay/binding seam ran — re-bind, not reimplemented in the test).
+    # B4: re-bound to the COMPUTED+PERSISTED room (selection never re-ran).
     stay_c_row = await db.get(Stay, stay_c.id)
-    assert str(stay_c_row.room_id) == str(h["spare_room"].id)
-    # The linked Glitch was closed (the recovery the relocate discharges):
-    # exactly one glitch_closed.
+    assert str(stay_c_row.room_id) == str(persisted_c)
     gl_row = await db.get(Glitch, gl.id)
     assert gl_row.state == "closed"
     assert await _count(db, EventGlitchClosed, "glitch_id",
                         gl.id) == n_gl_cl0 + 1
-    # The escalation resolved (overridden) — exactly one escalation_resolved.
     e_c = await db.get(Escalation, esc_c.id)
-    assert e_c.state == "overridden"
-    assert e_c.resolved_by_account_id == sup.id      # the human resolver
+    assert e_c.state == "approved"
+    assert str(e_c.resolved_by_account_id) == str(sup.id)  # human resolver
     assert await _count(db, EventEscalationResolved, "escalation_id",
-                        esc_c.id) == 1
+                        esc_c.id) == 1               # exactly one resolved
+    mv_c, mv_wo_c = await _assert_move_task_spawned_and_acceptable(
+        child_c, trigger_req_c)
 
-    # The recovery completes the WorkOrder and crosses departments
+    # ---- (ii) EDIT → a CHOSEN non-recommended room ---------------------
+    guest_e, stay_e, child_e, wo_e, gl_e, esc_e, persisted_e = \
+        await _raise_relocate("ii")
+    trigger_req_e = (await db.get(ChildSubRequest, child_e.id)).request_id
+    # Pick an eligible room that is NOT the spine-recommended one so the
+    # supervisor-edited room is provably what re-binds (B6 §7.4).
+    chosen = (h["spare_room2"] if str(h["spare_room2"].id) != str(persisted_e)
+              else h["spare_room3"])
+    assert str(chosen.id) != str(persisted_e)
+    await login(sup.username, _PW)
+    n_gl_cl0_e = await _count(db, EventGlitchClosed, "glitch_id", gl_e.id)
+    red = await client.post(
+        f"/api/supervisor/decisions/{esc_e.id}/resolve",
+        json={"action": "edit", "payload": {"new_room_id": str(chosen.id)}})
+    assert red.status_code == 200, red.text
+    await db.commit()
+    stay_e_row = await db.get(Stay, stay_e.id)
+    assert str(stay_e_row.room_id) == str(chosen.id)   # the CHOSEN room won
+    assert str(stay_e_row.room_id) != str(persisted_e)  # NOT the stored rec
+    assert (await db.get(Glitch, gl_e.id)).state == "closed"
+    assert await _count(db, EventGlitchClosed, "glitch_id",
+                        gl_e.id) == n_gl_cl0_e + 1
+    e_e = await db.get(Escalation, esc_e.id)
+    assert e_e.state == "edited"
+    assert str(e_e.resolved_by_account_id) == str(sup.id)
+    assert await _count(db, EventEscalationResolved, "escalation_id",
+                        esc_e.id) == 1
+    await _assert_move_task_spawned_and_acceptable(child_e, trigger_req_e)
+
+    # ---- (iii) SILENT AUTO-PROCEED on the PERSISTED room ---------------
+    # An equivalent escalation the supervisor IGNORES: the spine-armed
+    # supervisor_sla timer is forced past + ``runner.tick`` auto-proceeds
+    # through the REAL engine on the PERSISTED room (B4 §7.2; selection
+    # never re-runs). End-state ≡ approve except resolved_by_account_id.
+    guest_s2, stay_s2, child_s2, wo_s2, gl_s2, esc_s2, persisted_s2 = \
+        await _raise_relocate("iii")
+    trigger_req_s2 = (await db.get(ChildSubRequest, child_s2.id)).request_id
+    n_gl_cl0_s2 = await _count(db, EventGlitchClosed, "glitch_id", gl_s2.id)
+    n_res_s2 = await _count(db, EventEscalationResolved, "escalation_id",
+                            esc_s2.id)
+    await _arm_past(db, "escalation_id", esc_s2.id,
+                    _t.TimerType.SUPERVISOR_SLA)
+    assert await runner.tick(db) >= 1
+    await db.commit()
+    e_s2 = await db.get(Escalation, esc_s2.id)
+    assert e_s2.state == "auto_proceeded"            # structural silence
+    assert e_s2.resolved_by_account_id is None       # silence ≡ approve
+    stay_s2_row = await db.get(Stay, stay_s2.id)
+    assert str(stay_s2_row.room_id) == str(persisted_s2)  # PERSISTED room
+    assert (await db.get(Glitch, gl_s2.id)).state == "closed"
+    assert await _count(db, EventGlitchClosed, "glitch_id",
+                        gl_s2.id) == n_gl_cl0_s2 + 1
+    assert await _count(db, EventEscalationResolved, "escalation_id",
+                        esc_s2.id) == n_res_s2 + 1   # exactly one resolved
+    await _assert_move_task_spawned_and_acceptable(child_s2, trigger_req_s2)
+
+    # spec §7.4 one-executor symmetry: auto-proceed (iii) ≡ approve (i)
+    # in EVERY structural field except the resolver (set for approve,
+    # None for silence) and the outcome label.
+    assert e_c.trigger == e_s2.trigger == "servicer_raised"
+    assert e_c.resolved_at is not None and e_s2.resolved_at is not None
+    assert e_c.cycle_count == e_s2.cycle_count
+    assert str((await db.get(Stay, stay_c.id)).room_id) == str(persisted_c)
+    assert str((await db.get(Stay, stay_s2.id)).room_id) == str(persisted_s2)
+    assert e_c.state == "approved" and e_s2.state == "auto_proceeded"
+    assert str(e_c.resolved_by_account_id) == str(sup.id)
+    assert e_s2.resolved_by_account_id is None
+
+    # The recovery completes the engineer's WorkOrder + crosses departments
     # (housekeeping servicer ↛ the engineering follow-up) → the genuine C4
-    # WorkOrder→completed cross-dept hop emits a CrossDeptNotification. This
-    # is driven through the REAL engine ``lifecycle.transition`` with the
-    # documented downstream-department ctx (the proven xdn seam of
-    # ``test_lifecycle_machines.test_workorder_completed_orchestrates_child_and_xdn``
-    # — IssueCode has no downstream-dept column in this slice, so the
-    # cross-dept target is supplied via ctx, exactly as production wires it).
+    # WorkOrder→completed cross-dept hop emits a CrossDeptNotification. The
+    # cross-dept target is supplied via ctx, exactly as production wires it
+    # (IssueCode has no downstream-dept column in this slice).
     wo_c_row = await db.get(WorkOrder, wo_c.id)
     n_xdn0 = (await db.execute(sa.select(sa.func.count())
               .select_from(CrossDeptNotification)
