@@ -53,10 +53,17 @@ const keys = {
   requests: ["guest", "requests"] as const,
 }
 
+// No-dispatch conversation surface (grounded answers, smalltalk, honest
+// deferrals D25). Distinct path — GET /guest/requests is won by the dispatch
+// router, so the no-dispatch journey lives at /guest/conversation. Polled at
+// the same cadence as dispatch cards so async outcomes (a deferral, or a
+// reservation-mutation result after supervisor action) appear without a
+// manual refresh.
 export function useConversation() {
   return useQuery({
     queryKey: ["conversation"],
-    queryFn: () => api.get<Req[]>("/guest/requests"),
+    queryFn: () => api.get<Req[]>("/guest/conversation"),
+    refetchInterval: 4_000,
   })
 }
 

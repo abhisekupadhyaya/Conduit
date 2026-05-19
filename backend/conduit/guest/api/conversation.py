@@ -42,7 +42,13 @@ async def confirm(child_id: str, body: ConfirmIn,
     return out
 
 
-@router.get("/requests", response_model=list[RequestOut])
+# Distinct path from the dispatch status cards (GET /guest/requests, won by
+# the dispatch router). Without this, the no-dispatch journey — grounded
+# answers, smalltalk, and honest deferrals (D25) — is shadowed and invisible
+# in the UI. Dispatch-mode children are intentionally skipped here: they are
+# surfaced by the dispatch cards endpoint, so this stays the no-dispatch
+# conversation surface only (no double-render).
+@router.get("/conversation", response_model=list[RequestOut])
 async def list_conversation(actor: Actor = Depends(_guest),
                             s: AsyncSession = Depends(db_session)):
     reqs = await rdal.list_requests_for_guest(s, actor.id)
@@ -51,6 +57,8 @@ async def list_conversation(actor: Actor = Depends(_guest),
         kids = await cdal.list_children_for_request(s, r.id)
         cs = []
         for c in kids:
+            if c.fulfilment_mode == "dispatch":
+                continue                       # surfaced by dispatch cards
             res = await resdal.get_resolution(s, c.id)
             cs.append(ChildOut(child_id=str(c.id), text=c.text,
                 issue_code=None,

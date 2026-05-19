@@ -8,6 +8,7 @@ import { Composer } from "@/components/common/composer"
 import { EmptyState } from "@/components/common/empty-state"
 import { ErrorState } from "@/components/common/error-state"
 import {
+  useConversation,
   useDispatchCards,
   useSubmitRequest,
 } from "@/shell/guest/hooks/use-conversation"
@@ -26,10 +27,19 @@ import {
 // no-dispatch path; the poll then reflects any dispatched child.
 export function GuestConversation() {
   const { user } = useAuth()
+  const conv = useConversation()
   const cards = useDispatchCards()
   const submit = useSubmitRequest()
 
-  const items = cards.data ?? []
+  // No-dispatch journey (grounded answers, smalltalk, honest deferrals D25)
+  // lives at GET /guest/conversation; dispatch status cards at the
+  // dispatch-won GET /guest/requests. Render BOTH — before this the page
+  // only read dispatch, so every no-dispatch outcome was invisible.
+  const convChildren = (conv.data ?? []).flatMap((r) => r.children)
+  const dispatchItems = cards.data ?? []
+  const total = convChildren.length + dispatchItems.length
+  const isLoading = conv.isLoading || cards.isLoading
+  const isError = conv.isError || cards.isError
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col">
@@ -42,20 +52,23 @@ export function GuestConversation() {
         </p>
       </div>
 
-      {cards.isLoading ? (
+      {isLoading ? (
         <div className="flex-1 space-y-3 py-2">
           <Skeleton className="h-12 w-2/3" />
           <Skeleton className="ml-auto h-10 w-1/2" />
           <Skeleton className="h-16 w-3/4" />
         </div>
-      ) : cards.isError ? (
+      ) : isError ? (
         <div className="flex-1 py-2">
           <ErrorState
             title="Couldn’t load your conversation."
-            onRetry={cards.refetch}
+            onRetry={() => {
+              conv.refetch()
+              cards.refetch()
+            }}
           />
         </div>
-      ) : items.length === 0 && !submit.isPending ? (
+      ) : total === 0 && !submit.isPending ? (
         <div className="flex-1 py-2">
           <EmptyState
             title="No requests yet"
@@ -63,8 +76,14 @@ export function GuestConversation() {
           />
         </div>
       ) : (
-        <ChatScroll pinKey={`${items.length}:${submit.isPending}`}>
-          {items.map((c) => (
+        <ChatScroll pinKey={`${total}:${submit.isPending}`}>
+          {convChildren.map((c) => (
+            <div key={c.child_id} className="space-y-1">
+              <Message from="guest">{c.text}</Message>
+              <ChildStatusCard child={c} />
+            </div>
+          ))}
+          {dispatchItems.map((c) => (
             <div key={c.child_id} className="space-y-1">
               {c.issue_label && (
                 <Message from="system">{c.issue_label}</Message>

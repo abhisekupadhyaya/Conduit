@@ -37,7 +37,14 @@ export function ChildStatusCard(
   }
   return (
     <div className="text-muted-foreground rounded-lg border border-dashed px-3 py-2 text-sm">
-      Logged — a team member will follow up.
+      {child.answer ? (
+        // D25: an honest deferral message (ungroundable / LLM down) — never
+        // a silent dead-end. Muted + dashed: a human has it, nothing for
+        // the guest to do.
+        <p className="whitespace-pre-wrap">{child.answer}</p>
+      ) : (
+        "Logged — a team member will follow up."
+      )}
     </div>
   )
 }
