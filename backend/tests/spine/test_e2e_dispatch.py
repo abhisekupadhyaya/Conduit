@@ -47,7 +47,6 @@ import sqlalchemy as sa
 
 from conduit.shared.domain import lifecycle
 from conduit.shared.engine import runner
-from conduit.shared.engine import spine
 from conduit.shared.engine import timers as _t
 from conduit.shared.models import (
     ChildSubRequest,
