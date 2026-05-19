@@ -36,11 +36,19 @@ src/
   components/
     ui/             shadcn primitives
     theme-provider.tsx
-    layout/         shared shell: app-shell, app-sidebar, nav-main, nav-user, app-brand
+    layout/         shared shell: app-shell, app-sidebar, nav-main,
+                    nav-user, app-brand, nav-config, page-header
+    common/         cross-portal domain widgets (composer, countdown,
+                    shift-card, status/role badges, form dialogs, …)
   shell/
-    guest/          nav.tsx + index.tsx + hooks/
-    servicer/       nav.tsx + index.tsx + hooks/
-    supervisor/     nav.tsx + index.tsx + hooks/
+    guest/          nav · index · settings · pages/ · hooks/
+                      (conversation thread, submit, confirm)
+    servicer/       nav · index · settings · pages/ · hooks/
+                      (shift card, task queue, accept/start/complete/escalate)
+    supervisor/     nav · index · settings · pages/ (~15: awareness,
+                    decisions, task-explorer, sections, issue-codes,
+                    staff, rosters, knowledge-base, sla-presets,
+                    escalation-ladder, provisioning, manage-*) · hooks/
 ```
 
 ## Develop
@@ -68,6 +76,8 @@ Amplify same-origin proxy — see
 
 ## Status
 
-Scaffolding. Pages render against the TanStack Query hooks with
-loading/empty/error states; backend endpoints are stubs, so live data appears
-once the backend behaviour lands. Structure first, behaviour next.
+Built out. All three role portals (guest / servicer / supervisor) have real
+pages, per-portal hooks, and data binding over TanStack Query, with
+loading/empty/error states throughout. Backend behaviour is largely landed;
+the few surfaces fed by the remaining backend stubs (servicer queue, the
+supervisor config-read) render their empty/loading states until those land.

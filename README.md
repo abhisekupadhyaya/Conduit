@@ -14,24 +14,27 @@ layer that decided *who* does it and *when* is what Conduit replaces.
 
 ## Status
 
-**Core lifecycle is implemented and tested; behaviour is being filled in
-slice by slice.** The in-process timer engine, the dispatch & escalation
-spine, routing, triage classification, staffing/availability, and the auth
-slice are built and covered by an end-to-end test suite — including a
-scripted full-journey test and structural auth/event-log guards. ORM models
-for the spine are in place. A few paths remain deliberate
-`NotImplementedError` stubs (multi-part request decomposition, the servicer
-queue endpoint, parts of supervisor setup).
+**Core lifecycle and the three role portals are implemented and tested;
+behaviour is being filled in slice by slice.** The in-process timer engine,
+the dispatch & escalation spine, routing, triage (decomposition,
+classification, the deterministic rulebook), staffing/availability, the
+conversation/answer-action and relocation sub-flows, and the auth slice are
+built and covered by an end-to-end test suite (~75 backend test files —
+including a scripted full-journey test and structural auth/event-log guards).
+Seven Alembic migrations are in place; spine ORM models exist. A few paths
+remain deliberate `NotImplementedError` stubs — the servicer queue endpoint,
+the supervisor config-read endpoint, and the shared event-log writer (pending
+the event model).
 
 | Area | State |
 |---|---|
 | Product scope & decisions | Defined (the source of truth) |
 | Infrastructure architecture | Converged — see [docs/archi/](docs/archi/) |
-| Data model | Spine modelled; still evolvable — see [docs/datamodels/](docs/datamodels/) |
-| Frontend | Scaffolded + role-routed portals (Vite/React/TS/Tailwind/shadcn) |
-| Backend | Engine + dispatch spine + staffing + auth implemented (FastAPI, engine in-process) |
+| Data model | Spine modelled (7 migrations); still evolvable — see [docs/datamodels/](docs/datamodels/) |
+| Frontend | Built out — all three role portals (guest/servicer/supervisor) with real pages, hooks & data binding (Vite/React/TS/Tailwind/shadcn) |
+| Backend | Engine + dispatch spine + triage + staffing + conversation/relocation sub-flows + auth implemented (FastAPI, engine in-process) |
 | Deployment | Terraform IaC + deploy scripts — see [dev-ops/](dev-ops/) |
-| Feature behaviour | Largely implemented; a few documented stubs remain |
+| Feature behaviour | Largely implemented; three documented stubs remain |
 
 ## Repository layout
 

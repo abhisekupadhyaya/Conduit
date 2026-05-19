@@ -48,8 +48,8 @@ tests/                    api · domain · engine · smoke
 # .venv already created; otherwise:
 #   python3.12 -m venv .venv && .venv/bin/pip install -e ".[dev]"
 .venv/bin/uvicorn apps.api_main:app --reload --port 8000
-.venv/bin/pytest -q                  # tests
-.venv/bin/alembic upgrade head       # once models exist
+.venv/bin/pytest -q                  # tests (~75 files)
+.venv/bin/alembic upgrade head       # 7 migrations: 0001 → 0007
 ```
 
 Requires Python 3.12.
@@ -74,11 +74,17 @@ CORS instead of an Amplify same-origin proxy).
 ## Status
 
 Core implemented and tested. The in-process timer engine
-(`shared/engine/`), the dispatch & escalation spine, routing, triage
-classification (`shared/domain/`), staffing/availability, and the auth slice
-are built; spine ORM models exist; `tests/` includes a scripted full-journey
-end-to-end plus structural auth/event-log guards. A few paths remain
-deliberate `NotImplementedError` stubs — multi-part decomposition
-(`triage.decompose`/`triage`; `triage.classify` *is* implemented), the
-servicer queue endpoint, and parts of `supervisor/api/setup.py`. The data
-model is still marked *subject to change* where flagged.
+(`shared/engine/`), the dispatch & escalation spine, routing, the full
+triage path — `triage.decompose`, `triage.classify`, and the deterministic
+`triage.triage` rulebook (`shared/domain/`) — staffing/availability, the
+conversation/answer-action and relocation sub-flows, and the auth slice are
+built; all four portal slices have populated `api/ services/ dal/ schemas/`;
+spine ORM models exist behind 7 Alembic migrations; `tests/` (~75 files,
+heaviest under `spine/` and `binding/`) includes a scripted full-journey
+end-to-end plus structural auth/event-log guards. Three deliberate
+`NotImplementedError` stubs remain — the servicer queue endpoint
+(`servicer/api/queue.py`: `queue`/`accept`/`escalate`), the supervisor
+config read (`supervisor/api/setup.py`: `get_config`; the SLA/ladder CRUD
+endpoints around it *are* implemented), and the shared event-log writer
+(`shared/events/__init__.py`: `record_event`, pending the event model). The
+data model is still marked *subject to change* where flagged.
