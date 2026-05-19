@@ -18,6 +18,14 @@ from conduit.shared.integrations.openai import LLMUnavailable
 from conduit.supervisor.dal import kb as kbdal
 
 
+# D25: an ungroundable question (or an LLM outage, AD11) must NEVER be silent
+# — the guest always gets an honest, visible deferral, not a blank.
+_DEFERRAL_MESSAGE = (
+    "I'm not certain about that — I've asked a member of staff to confirm "
+    "and get back to you shortly."
+)
+
+
 async def resolve(s: AsyncSession, child, ambient: dict, actor_id,
                   history: str = "") -> dict:
     kb = [{"id": str(e.id), "topic": e.topic, "content": e.content}
@@ -47,8 +55,10 @@ async def resolve(s: AsyncSession, child, ambient: dict, actor_id,
             actor_account_id=actor_id, resolution_child_id=child.id)
         return {"terminal": "answered", "answer": g["answer"],
                 "closure_prompt": True}
-    await rdal.insert_resolution(s, child_id=child.id, mode="human_deferral")
+    await rdal.insert_resolution(s, child_id=child.id, mode="human_deferral",
+        answer_text=_DEFERRAL_MESSAGE)
     await s.flush()
     await lifecycle.transition(s, child, "concierge_queue",
         actor_account_id=actor_id)
-    return {"terminal": "logged"}
+    return {"terminal": "logged", "answer": _DEFERRAL_MESSAGE,
+            "closure_prompt": False}
