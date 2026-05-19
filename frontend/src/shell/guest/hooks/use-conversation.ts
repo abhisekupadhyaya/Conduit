@@ -40,6 +40,10 @@ export type DispatchCard = {
   assigned_servicer_name?: string | null
   revised_eta?: string | null
   glitch: boolean
+  // Spec §8 / §4 — additive output (DispatchCardOut.relocated_to). Set on a
+  // live sibling card once the stay re-binds to the new room (the towel
+  // follows the guest to 511). Calm reassurance, never an alert.
+  relocated_to?: string | null
 }
 
 // Merged array-key idiom (use-guest.ts / use-servicer.ts). The dispatch cards
