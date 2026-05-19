@@ -937,9 +937,18 @@ async def test_servicer_raised_relocate_auto_proceed_equals_approve(
 
 
 async def _seed_fo_guest_move_code(db):
-    """Seed the system ``FO-GUEST-MOVE`` IssueCode (B1 seeds it in the real
-    catalog; the spine bench builds its own minimal chain so seed it here —
-    the exact spec shape: origin='system', dispatch, section_pooled)."""
+    """Get-or-create the system ``FO-GUEST-MOVE`` IssueCode (the exact spec
+    shape: origin='system', dispatch, section_pooled).
+
+    Idempotent: migration 0007 seeds it in the real catalog and the spine
+    bench restores that canonical post-``upgrade head`` row after its
+    one-shot leakage-reset truncate, so the row is normally already present.
+    Re-inserting would violate the ``lower(code)`` unique index — so reuse
+    the existing row when present, else create it (covers any ordering)."""
+    existing = (await db.execute(sa.select(IssueCode).where(
+        sa.func.lower(IssueCode.code) == "fo-guest-move"))).scalars().first()
+    if existing is not None:
+        return existing
     ic = IssueCode(code="FO-GUEST-MOVE", label="Guest move",
                    department="front_office", fulfilment_mode="dispatch",
                    routing_model="section_pooled", intent_kind="service",
