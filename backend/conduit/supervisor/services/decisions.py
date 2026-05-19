@@ -74,23 +74,36 @@ async def _enrich_relocate_detail(s: AsyncSession, item: dict) -> None:
 
     current_room_id = await spine._current_room_for_child(s, child)
     property_id = await spine._property_id_for_child(s, child)
-    eligible: list[str] = []
+    # ``{id,label}`` shape (Spec §9.1/§10/§12 — the card shows room NUMBERS,
+    # never raw ids; consistent with the de-UUID D17 direction). Labels come
+    # from the SAME engine-local property-rooms read the spine used at build.
+    label_by_id: dict[str, str] = {}
+    elig_ids: list = []
     if property_id is not None:
         rooms, occupied = await spine._rooms_and_occupancy(s, property_id)
+        label_by_id = {str(rid): label for rid, label in rooms}
         _recommended, elig_ids = room_selection.select(
             rooms=rooms, occupied_room_ids=occupied,
             current_room_id=current_room_id)
-        eligible = [str(rid) for rid in elig_ids]
+
+    async def _room_obj(rid) -> dict | None:
+        if rid is None:
+            return None
+        key = str(rid)
+        label = label_by_id.get(key)
+        if label is None:                       # cross-property/edge fallback
+            r = await s.get(Room, rid)
+            label = r.label if r is not None else key
+        return {"id": key, "label": label}
 
     rec = item["recommendation"]
     detail = rec.get("detail")
     if not isinstance(detail, dict):
         detail = {}
-    detail["current_room"] = (
-        str(current_room_id) if current_room_id is not None else None)
-    detail["recommended_room"] = (
-        str(rec_rel.target_room_id) if rec_rel is not None else None)
-    detail["eligible_rooms"] = eligible
+    detail["current_room"] = await _room_obj(current_room_id)
+    detail["recommended_room"] = await _room_obj(
+        rec_rel.target_room_id if rec_rel is not None else None)
+    detail["eligible_rooms"] = [await _room_obj(rid) for rid in elig_ids]
     rec["detail"] = detail
 
 

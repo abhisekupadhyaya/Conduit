@@ -638,10 +638,14 @@ async def test_supervisor_relocate_decision_card_and_edit(
     # eligible rooms. ``recommended_room`` == the persisted
     # ``RecRelocate.target_room_id`` projection (display-only; selection is
     # NOT re-run to mutate the recommendation — auto-proceed safety).
-    assert detail["current_room"] == str(room.id)
-    assert detail["recommended_room"] == str(persisted_target)
+    # {id,label} shape (Spec §9.1/§10/§12 — the card shows room NUMBERS).
+    assert detail["current_room"] == {"id": str(room.id),
+                                      "label": room.label}
+    assert detail["recommended_room"]["id"] == str(persisted_target)
+    assert isinstance(detail["recommended_room"]["label"], str)
     assert isinstance(detail["eligible_rooms"], list)
-    elig = set(detail["eligible_rooms"])
+    assert all(set(r) == {"id", "label"} for r in detail["eligible_rooms"])
+    elig = {r["id"] for r in detail["eligible_rooms"]}
     assert {str(spare_a.id), str(spare_b.id), str(spare_c.id)} <= elig
     # Occupied + current are NOT eligible.
     assert str(occ_room.id) not in elig

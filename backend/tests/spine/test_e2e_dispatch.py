@@ -653,9 +653,11 @@ async def test_e2e_dispatch_journey(client, make_account, login, db,
     card_c = {d["escalation_id"]: d for d in dqc.json()}[str(esc_c.id)]
     assert card_c["recommendation"]["action"] == "relocate"
     det_c = card_c["recommendation"]["detail"]
-    assert det_c["current_room"] == str(h["room"].id)
-    assert det_c["recommended_room"] == str(persisted_c)
-    assert str(h["room"].id) not in set(det_c["eligible_rooms"])
+    # {id,label} shape (Spec §9.1/§10/§12 — card shows room NUMBERS).
+    assert det_c["current_room"]["id"] == str(h["room"].id)
+    assert det_c["recommended_room"]["id"] == str(persisted_c)
+    assert str(h["room"].id) not in {
+        r["id"] for r in det_c["eligible_rooms"]}
     n_gl_cl0 = await _count(db, EventGlitchClosed, "glitch_id", gl.id)
     rap_c = await client.post(
         f"/api/supervisor/decisions/{esc_c.id}/resolve",
